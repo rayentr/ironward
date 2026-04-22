@@ -1,0 +1,16 @@
+# UUIDs and git-style SHA hashes — all should be ignored.
+
+# UUID v4s
+const session_id = "550e8400-e29b-41d4-a716-446655440000";
+const trace_id = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
+const correlation = "c9bf9e57-1685-4c89-bafb-ff5af830be8a";
+
+# Git SHAs
+commit 6b3c7a02e9d4f5a1c2b3d4e5f6a7b8c9d0e1f2a3
+blob 9f1d8e6c5b3a2f4d0e1c9b8a7d6e5f4c3b2a1d0e
+tree 4d6f8a2b1c3e5d7f9a0b2c4e6d8f0a2b4c6e8d0f
+
+# Commit author email
+author: alice@example.com
+# Standard module path
+require "lodash/fp/getOr"

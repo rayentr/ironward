@@ -1,0 +1,9 @@
+# Fake format-matching strings for scanner tests. NEVER copy these anywhere.
+
+aws_key = "AKIAABCDEFGHIJKLMNOP"
+aws_secret_access_key = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCd"
+GCP_API_KEY = "AIzaAbCdEfGhIjKlMnOpQrStUvWxYz012345678"
+GCP_OAUTH_CLIENT_SECRET = "GOCSPX-AbCdEfGhIjKlMnOpQrStUvWxYz01"
+AZURE_STORAGE = "DefaultEndpointsProtocol=https;AccountName=prodstorage;AccountKey=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKlMnOp"
+DIGITALOCEAN_TOKEN = "dop_v1_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+ALIBABA_KEY = "LTAIAbCdEfGhIjKlMnOp"

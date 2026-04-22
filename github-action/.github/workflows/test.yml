@@ -1,0 +1,57 @@
+name: Self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  dogfood:
+    name: Run the action on itself
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Ironward on /github-action
+        id: ironward
+        uses: ./
+        with:
+          path: ./github-action
+          fail-on: critical
+          report-path: ironward-report.json
+
+      - name: Verify outputs are set
+        run: |
+          set -eu
+          echo "findings-count = ${{ steps.ironward.outputs.findings-count }}"
+          echo "critical-count = ${{ steps.ironward.outputs.critical-count }}"
+          echo "high-count     = ${{ steps.ironward.outputs.high-count }}"
+          echo "score          = ${{ steps.ironward.outputs.score }}"
+          echo "report-path    = ${{ steps.ironward.outputs.report-path }}"
+
+          test -f "${{ steps.ironward.outputs.report-path }}" || { echo "report missing"; exit 1; }
+
+          # Outputs must be non-empty
+          [ -n "${{ steps.ironward.outputs.findings-count }}" ] || { echo "findings-count empty"; exit 1; }
+          [ -n "${{ steps.ironward.outputs.score }}" ]          || { echo "score empty"; exit 1; }
+
+      - name: Report must be valid JSON
+        run: |
+          python3 -c 'import json, sys; json.load(open(sys.argv[1]))' ironward-report.json
+          jq '.counts, .score' ironward-report.json
+
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ironward-report
+          path: ironward-report.json
+
+  no-config:
+    name: Zero-config run on repo root
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run with zero config
+        uses: ./
+        # No `with:` block at all — verifies the defaults work.

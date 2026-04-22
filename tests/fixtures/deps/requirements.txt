@@ -1,0 +1,12 @@
+# Common Python deps with known CVE ranges — used for parser test only.
+
+django==2.2.3
+flask==0.12
+requests==2.19.0
+pyyaml==5.1
+urllib3==1.24.1
+pillow[jpeg]==5.2.0
+
+# Comments and extras lines should be skipped.
+-e git+https://github.com/user/repo.git#egg=localpkg
+https://files.pythonhosted.org/packages/abc/some_package-1.0.tar.gz

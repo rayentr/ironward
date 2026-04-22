@@ -1,0 +1,12 @@
+# Fake format-matching strings for scanner tests.
+
+SLACK_BOT = "xoxb-9876543210-8765432109-AbCdEfGhIjKlMnOpQrStUvWx"
+SLACK_WEBHOOK = "https://hooks.slack.com/services/TABCDEFGHIJ/BKLMNOPQRST/AbCdEfGhIjKlMnOpQrStUvWx"
+DISCORD_WEBHOOK = "https://discord.com/api/webhooks/987654321987654321/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKlMnOpQrStUvWxYz012345"
+SENDGRID = "SG.AbCdEfGhIjKlMnOpQrStUv.AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfG"
+
+POSTGRES_URL = "postgresql://prod_admin:Sup3rS3cr3tP@ssw0rd@db.internal.corp:5432/app_prod"
+MONGODB_URL = "mongodb+srv://rw_user:aVeryLongPassword@cluster0.xyzab.mongodb.net/myApp"
+REDIS_URL = "redis://:rOOtPaSsWoRdHere@redis.internal:6379/0"
+
+SENTRY_DSN = "https://0123456789abcdef0123456789abcdef@o789456.ingest.us.sentry.io/7654321"

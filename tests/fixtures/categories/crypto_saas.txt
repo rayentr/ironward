@@ -1,0 +1,16 @@
+# Fake format-matching strings for scanner tests.
+
+-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEAnotARealPrivateKeyBodyJustFormatMatchForScanner
+-----END RSA PRIVATE KEY-----
+
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+-----END OPENSSH PRIVATE KEY-----
+
+NPM_TOKEN = "npm_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+DOCKERHUB_PAT = "dckr_pat_AbCdEfGhIjKlMnOpQrStUvWxYz01"
+NOTION_TOKEN = "secret_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfG"
+LINEAR_API_KEY = "lin_api_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCd"
+FIGMA_PAT = "figd_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfG"
+TAILSCALE_KEY = "tskey-auth-AbCdEfGhIjCNTRL-AbCdEfGhIjKlMnOpQrStUvWxYz01"

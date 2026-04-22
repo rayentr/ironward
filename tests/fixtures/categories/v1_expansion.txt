@@ -1,0 +1,37 @@
+# v1.0 pattern expansion fixture
+# (synthetic values — NOT real secrets)
+
+# Payment
+paypal_client_secret = "EKAbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefgh"
+square_access_token = sq0atp-AbCdEfGhIjKlMnOpQrStUv
+razorpay_key_secret = "aBcDefGhIjKlMnOpQrStUvWxYz"
+stripe_restricted_live = rk_live_51HabcdefghijklmnopqrstuvwxyzAB
+clerk_secret_key = sk_live_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01
+
+# Comms / email
+resend_api_key = re_AbCdEfGh12_ABCDEFGHIJKLMNOPQRSTUVWX
+postmark_token = "12345678-abcd-1234-abcd-123456789abc"
+mailgun_key = key-0123456789abcdef0123456789abcdef
+mailgun_signing_key = "abcdef0123456789abcdef0123456789-abcdef01-01abcdef"
+
+# Infra
+vercel_token = "AbCdEf0123456789AbCdEfGh"
+netlify_token = "nfp_abcdefghijklmnopqrstuvwxyz0123456789ABCD"
+shopify_access_token = shpat_0123456789abcdef0123456789abcdef
+
+# Monitoring
+datadog_api_key = "0123456789abcdef0123456789abcdef"
+pagerduty_routing_key = abcdef0123456789abcdef0123456789
+
+# Web3
+infura_url = https://mainnet.infura.io/v3/0123456789abcdef0123456789abcdef
+etherscan_api_key = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
+
+# DB / AI / SaaS / SCM
+planetscale_token = pscale_tkn_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP
+notion_token = secret_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOab
+linear_key = lin_api_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN
+twitter_bearer = AAAAAAAAAAAAAAAAAAAAAabcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL
+discord_bot_token = "ABCDefghijklmnopqrstuvwx.AbCdEfG.Abcdefghijklmnopqrstuvwxyz0123456"
+posthog_pat = phx_abcdefghijklmnopqrstuvwxyz0123456789ABCDEF
+algolia_admin_key = "0123456789abcdef0123456789abcdef"

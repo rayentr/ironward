@@ -1,0 +1,70 @@
+{
+  "name": "aegis-mcp-vscode",
+  "displayName": "Aegis MCP",
+  "description": "AI-powered security scanner. Finds secrets, auth bugs, SQL injection, and vulnerable dependencies. Registers itself as an MCP server for VS Code's Chat / Copilot.",
+  "version": "0.5.0",
+  "publisher": "aegis-mcp",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aegis-mcp/aegis-mcp"
+  },
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": ["Linters", "Other"],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aegis-mcp.scanWorkspace",
+        "title": "Aegis MCP: Scan Workspace for Secrets",
+        "category": "Aegis MCP"
+      },
+      {
+        "command": "aegis-mcp.scanCurrentFile",
+        "title": "Aegis MCP: Scan Current File for Secrets",
+        "category": "Aegis MCP"
+      },
+      {
+        "command": "aegis-mcp.configureMcp",
+        "title": "Aegis MCP: Show MCP Configuration",
+        "category": "Aegis MCP"
+      }
+    ],
+    "configuration": {
+      "title": "Aegis MCP",
+      "properties": {
+        "aegis-mcp.autoScanOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Scan each file for secrets when it is saved."
+        },
+        "aegis-mcp.serverCommand": {
+          "type": "string",
+          "default": "npx",
+          "description": "Command used to start the Aegis MCP server."
+        },
+        "aegis-mcp.serverArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["-y", "aegis-mcp@latest"],
+          "description": "Arguments passed to the server command."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "vscode:prepublish": "npm run build"
+  },
+  "dependencies": {
+    "aegis-mcp": "^0.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.95.0",
+    "typescript": "^5.6.3"
+  }
+}

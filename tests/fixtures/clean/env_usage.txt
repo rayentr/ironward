@@ -1,0 +1,19 @@
+# Proper env-var usage — zero findings expected.
+
+import os
+
+API_KEY = os.environ["OPENAI_API_KEY"]
+SECRET = os.getenv("ANTHROPIC_API_KEY")
+db_url = os.environ.get("DATABASE_URL")
+
+# JS/TS equivalents
+const key = process.env.STRIPE_SECRET_KEY;
+const token = process.env.GITHUB_TOKEN;
+const password = process.env.DB_PASSWORD;
+
+# Go
+key := os.Getenv("AWS_ACCESS_KEY_ID")
+
+# Config-file reference (no value)
+apiKey: ${{ secrets.OPENAI_API_KEY }}
+token: $CI_JOB_TOKEN

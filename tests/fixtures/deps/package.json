@@ -1,0 +1,16 @@
+{
+  "name": "example-app",
+  "version": "1.0.0",
+  "license": "MIT",
+  "dependencies": {
+    "lodash": "4.17.15",
+    "express": "^4.17.1",
+    "minimist": "~1.2.0"
+  },
+  "devDependencies": {
+    "chai": "4.3.4"
+  },
+  "optionalDependencies": {
+    "fsevents": "2.1.0"
+  }
+}

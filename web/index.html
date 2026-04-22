@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ironward — Security scanning for the vibe coding era</title>
+<meta name="description" content="Ironward is an MCP server and CLI that finds secrets, auth bugs, SQL injection, XSS, IDOR, and vulnerable deps in your code — and opens fix PRs. Works in Cursor, Claude Code, and VS Code.">
+<meta property="og:title" content="Ironward">
+<meta property="og:description" content="Security scanning for the vibe coding era. MCP server + CLI. Drop it into Cursor or Claude Code in 3 lines.">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0b0d; --fg:#f6f6f4; --mute:#a1a1a6; --accent:#9af99a; --danger:#ff7e6b;
+    --card:#141417; --border:#23232a; --code-bg:#18181c;
+    --radius:12px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--fg);font-family:"Inter",system-ui,sans-serif;line-height:1.55;-webkit-font-smoothing:antialiased}
+  main{max-width:1040px;margin:0 auto;padding:72px 28px 96px}
+  code,pre{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,monospace;font-size:13px}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  .nav{display:flex;justify-content:space-between;align-items:center;max-width:1040px;margin:0 auto;padding:20px 28px;font-size:14px}
+  .nav .brand{display:flex;gap:10px;align-items:center;font-weight:600}
+  .nav .brand .dot{width:10px;height:10px;border-radius:3px;background:var(--accent)}
+  .nav .links{display:flex;gap:20px;color:var(--mute)}
+
+  header .kicker{font-size:13px;color:var(--accent);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:18px;font-weight:500}
+  header h1{font-size:clamp(38px,6vw,62px);line-height:1.05;letter-spacing:-0.02em;font-weight:600;margin-bottom:22px;max-width:860px}
+  header h1 em{color:var(--accent);font-style:normal}
+  header p.lede{font-size:19px;color:var(--mute);max-width:720px;margin-bottom:34px}
+
+  .cta{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:28px}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:var(--radius);font-weight:500;font-size:14px;border:1px solid var(--border);color:var(--fg)}
+  .btn.primary{background:var(--accent);color:#0a0a0c;border-color:var(--accent)}
+  .btn.primary:hover{text-decoration:none;filter:brightness(1.05)}
+  .btn.ghost{background:transparent}
+  .btn.ghost:hover{border-color:var(--fg);text-decoration:none}
+
+  .install{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin-top:18px;max-width:720px}
+  .install .tabs{display:flex;gap:4px;margin-bottom:14px}
+  .install .tab{padding:6px 12px;border-radius:8px;font-size:13px;cursor:pointer;color:var(--mute);border:1px solid transparent;background:transparent;font-family:inherit}
+  .install .tab.active{background:var(--code-bg);color:var(--fg);border-color:var(--border)}
+  .install pre{background:var(--code-bg);padding:14px 16px;border-radius:8px;overflow-x:auto;white-space:pre}
+  .install pre .hl{color:var(--accent)}
+  .install-note{color:var(--mute);font-size:13px;margin-top:10px}
+
+  section{margin-top:88px}
+  section h2{font-size:30px;font-weight:600;letter-spacing:-0.01em;margin-bottom:8px}
+  section > p.sub{color:var(--mute);margin-bottom:32px;max-width:680px}
+
+  .tool-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+  .tool{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:22px}
+  .tool .name{font-family:"JetBrains Mono",monospace;font-size:14px;font-weight:500;color:var(--accent);margin-bottom:10px}
+  .tool .title{font-weight:600;font-size:17px;margin-bottom:8px}
+  .tool p{color:var(--mute);font-size:14.5px}
+  .tool .badge{display:inline-block;font-size:11px;padding:2px 8px;margin-top:12px;border-radius:999px;background:#1b1b20;color:var(--mute);letter-spacing:.3px}
+
+  .why{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+  .why .item{padding:20px;border:1px solid var(--border);border-radius:var(--radius);background:var(--card)}
+  .why .item .num{color:var(--accent);font-family:"JetBrains Mono",monospace;font-size:13px;margin-bottom:8px}
+  .why .item .h{font-weight:600;margin-bottom:6px}
+  .why .item p{color:var(--mute);font-size:14.5px}
+
+  .numbers{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-top:14px}
+  .stat{padding:22px;border:1px solid var(--border);border-radius:var(--radius);background:var(--card)}
+  .stat .big{font-size:34px;font-weight:600;letter-spacing:-0.01em;margin-bottom:4px}
+  .stat .label{color:var(--mute);font-size:14px}
+
+  pre.block{background:var(--code-bg);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;overflow-x:auto;font-size:13px;line-height:1.7}
+  .block .c{color:#7f8393}
+  .block .k{color:#c79cff}
+  .block .s{color:var(--accent)}
+
+  footer{margin-top:120px;padding:28px 28px 48px;border-top:1px solid var(--border);color:var(--mute);font-size:13px;text-align:center}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="brand"><span class="dot"></span> Ironward</div>
+  <div class="links">
+    <a href="#tools">Tools</a>
+    <a href="#install">Install</a>
+    <a href="https://github.com/rayentr/ironward">GitHub</a>
+  </div>
+</nav>
+
+<main>
+
+<header>
+  <div class="kicker">MCP server · CLI · VS Code extension</div>
+  <h1>Security scanning for the <em>vibe coding</em> era.</h1>
+  <p class="lede">Ironward is an open-source <strong>Model Context Protocol</strong> server and CLI that finds <strong>hardcoded secrets, auth bugs, SQL injection, XSS, IDOR, and vulnerable dependencies</strong> — and opens a fix PR for any finding. Runs inside Cursor, Claude Code, and VS Code. Four of its tools work fully offline — no API key required.</p>
+
+  <div class="cta">
+    <a class="btn primary" href="#install">Install in 3 lines</a>
+    <a class="btn ghost" href="https://github.com/rayentr/ironward">View on GitHub →</a>
+  </div>
+
+  <div class="install" id="install">
+    <div class="tabs">
+      <button class="tab active" data-t="cursor" type="button">Cursor</button>
+      <button class="tab" data-t="code" type="button">Claude Code</button>
+      <button class="tab" data-t="vscode" type="button">VS Code</button>
+      <button class="tab" data-t="cli" type="button">CLI</button>
+    </div>
+
+    <pre id="snip-cursor"><span class="c">// ~/.cursor/mcp.json</span>
+{
+  "mcpServers": {
+    "ironward": {
+      "command": "npx",
+      "args": [<span class="hl">"-y", "ironward@latest"</span>],
+      "env": { "ANTHROPIC_API_KEY": "sk-ant-..." }
+    }
+  }
+}</pre>
+
+    <pre id="snip-code" style="display:none"><span class="c"># one shot</span>
+claude mcp add ironward -- npx -y ironward@latest</pre>
+
+    <pre id="snip-vscode" style="display:none"><span class="c">// .vscode/mcp.json</span>
+{
+  "servers": {
+    "ironward": {
+      "command": "npx",
+      "args": [<span class="hl">"-y", "ironward@latest"</span>]
+    }
+  }
+}</pre>
+
+    <pre id="snip-cli" style="display:none"><span class="c"># scan without any IDE setup — no API key needed</span>
+npx ironward scan ./src
+npx ironward scan-secrets ./src
+npx ironward scan-code ./src
+npx ironward scan-deps package.json
+npx ironward scan-url https://example.com</pre>
+
+    <div class="install-note"><code>ANTHROPIC_API_KEY</code> is only needed for AI-backed tools (<code>scan_auth_logic</code>, <code>scan_sqli</code>, <code>scan_xss</code>, <code>scan_idor</code>, <code>fix_and_pr</code>). Run <code>ironward free</code> to see what works offline.</div>
+  </div>
+</header>
+
+<section id="tools">
+  <h2>Nine tools, wired into your editor.</h2>
+  <p class="sub">Each tool is independently useful. Your IDE chooses when to call which — or you can invoke them directly from the CLI.</p>
+
+  <div class="tool-grid">
+    <div class="tool">
+      <div class="name">scan_for_secrets</div>
+      <div class="title">665 pattern families, zero network.</div>
+      <p>AWS, GCP, Azure, Stripe, PayPal, GitHub, OpenAI, Anthropic, Slack, Postgres/Mongo URLs, private keys, Ethereum/Solana wallets, Supabase/PlanetScale/Turso + Shannon-entropy fallback. Placeholder + UUID/SHA allowlist keeps false positives near zero.</p>
+      <span class="badge">offline · regex + entropy</span>
+    </div>
+    <div class="tool">
+      <div class="name">scan_code</div>
+      <div class="title">27 static rules, pure offline.</div>
+      <p><code>eval</code>, <code>new Function</code>, command injection, path traversal, weak crypto (MD5/SHA-1/DES), SSRF, open redirects, prototype pollution, CORS wildcard, JWT <code>alg:none</code>, logged secrets, debugger left in code, and more.</p>
+      <span class="badge">offline · static analysis</span>
+    </div>
+    <div class="tool">
+      <div class="name">scan_auth_logic</div>
+      <div class="title">Reasoning models catch what patterns miss.</div>
+      <p>Backwards auth checks, missing ownership checks, privilege escalation, bypassable middleware, JWT <code>alg:none</code> acceptance, session fixation. A keyword pre-filter skips the model on unrelated files.</p>
+      <span class="badge">AI · keyword pre-filter</span>
+    </div>
+    <div class="tool">
+      <div class="name">scan_sqli</div>
+      <div class="title">Injection across six languages.</div>
+      <p>String concat, template literals, f-strings, <code>%</code>-format, <code>str.format</code>, <code>Sprintf</code>, ORM <code>raw</code> / <code>$queryRawUnsafe</code> / <code>knex.raw</code>. 24-rule cross-language pre-filter, model confirms.</p>
+      <span class="badge">AI · multi-language pre-filter</span>
+    </div>
+    <div class="tool">
+      <div class="name">scan_xss</div>
+      <div class="title">DOM + server-side XSS, all frameworks.</div>
+      <p><code>innerHTML</code>, <code>dangerouslySetInnerHTML</code>, Vue <code>v-html</code>, Angular <code>bypassSecurityTrust*</code>, Svelte <code>{@html}</code>, EJS/Mustache unescaped output, <code>eval</code>, reflected Express/Koa responses.</p>
+      <span class="badge">AI · sanitizer-aware</span>
+    </div>
+    <div class="tool">
+      <div class="name">scan_idor</div>
+      <div class="title">Missing ownership checks on every route.</div>
+      <p>Flags routes that read an ID from params/body/query and hit the DB without an owner check. Detects raw <code>prisma.update({ data: req.body })</code> mass-assignment. Counts owner hints to avoid false positives.</p>
+      <span class="badge">AI · owner-hint pre-filter</span>
+    </div>
+    <div class="tool">
+      <div class="name">scan_deps</div>
+      <div class="title">Every dependency, every CVE + supply-chain intel.</div>
+      <p>Parses <code>package.json</code>, <code>requirements.txt</code>, <code>Pipfile.lock</code> and queries OSV.dev. Also detects typosquats, abandoned packages, known malware, and copyleft/unlicensed deps. Sorted by CVSS.</p>
+      <span class="badge">offline · OSV.dev · typosquat · malware</span>
+    </div>
+    <div class="tool">
+      <div class="name">scan_url</div>
+      <div class="title">Letter-graded web scan, no install.</div>
+      <p>Probes security headers, cookies, CORS, exposed <code>.env</code> / <code>.git</code>, JS source maps, admin panels, public API docs, embedded Supabase/Firebase keys, TLS cert expiry, error leakage. Returns an <strong>A+/A/B/C/D/F</strong> grade.</p>
+      <span class="badge">offline · HTTP probes</span>
+    </div>
+    <div class="tool">
+      <div class="name">fix_and_pr</div>
+      <div class="title">Zero to merged — one tool call.</div>
+      <p>Hands any finding to a reasoning model for a surgical patch, creates a branch, commits across multiple files, validates the fix against the same scanner, opens a PR with OWASP references. <code>dryRun: true</code> to preview.</p>
+      <span class="badge">AI · GitHub REST · multi-file + validation</span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>What makes it different.</h2>
+  <div class="why">
+    <div class="item">
+      <div class="num">01</div>
+      <div class="h">Offline-first.</div>
+      <p>Four of nine tools — secrets, static code, deps, URL — run fully offline with no API key. Bring a key only when you want AI reasoning for auth/SQLi/XSS/IDOR or automated fixes.</p>
+    </div>
+    <div class="item">
+      <div class="num">02</div>
+      <div class="h">It fixes the bug, not just finds it.</div>
+      <p><code>fix_and_pr</code> turns a finding into a reviewable pull request. Multi-file fixes with validation loop — the patch is re-scanned before the PR opens.</p>
+    </div>
+    <div class="item">
+      <div class="num">03</div>
+      <div class="h">Bring your own model.</div>
+      <p>Works with Anthropic, OpenAI, Gemini, Groq, or a fully-local Ollama install. Your key stays local. No Ironward cloud, no per-seat pricing.</p>
+    </div>
+    <div class="item">
+      <div class="num">04</div>
+      <div class="h">Three-line install.</div>
+      <p>Paste a config, restart your editor, done. Or run <code>npx ironward scan ./src</code> with no setup whatsoever.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Try it without installing anything.</h2>
+  <p class="sub">Every scanner has a direct CLI mode. Drop it on a directory, get output in your terminal.</p>
+<pre class="block"><span class="c"># one command, runs everything offline</span>
+npx ironward scan ./src
+
+<span class="c"># individual scans</span>
+npx ironward scan-secrets ./src
+npx ironward scan-code ./src
+npx ironward scan-deps package.json requirements.txt
+npx ironward scan-url https://example.com
+
+<span class="c"># bring your own model for AI-backed scans</span>
+npx ironward login
+
+<span class="c"># start the MCP server manually (what your IDE does)</span>
+npx ironward serve</pre>
+</section>
+
+<section>
+  <h2>The numbers.</h2>
+  <div class="numbers">
+    <div class="stat"><div class="big">665</div><div class="label">secret pattern families</div></div>
+    <div class="stat"><div class="big">27</div><div class="label">static code rules</div></div>
+    <div class="stat"><div class="big">9</div><div class="label">MCP tools</div></div>
+    <div class="stat"><div class="big">162</div><div class="label">tests, 100% passing</div></div>
+  </div>
+</section>
+
+<footer>
+  Ironward · MIT licensed · <a href="https://github.com/rayentr/ironward">GitHub</a> · Built on the <a href="https://modelcontextprotocol.io">Model Context Protocol</a>.
+</footer>
+
+</main>
+
+<script>
+  const tabs = document.querySelectorAll(".install .tab");
+  const keys = ["cursor","code","vscode","cli"];
+  tabs.forEach(t => t.addEventListener("click", () => {
+    tabs.forEach(x => x.classList.remove("active"));
+    t.classList.add("active");
+    keys.forEach(k => {
+      const el = document.getElementById("snip-" + k);
+      if (el) el.style.display = (k === t.dataset.t) ? "block" : "none";
+    });
+  }));
+</script>
+</body>
+</html>

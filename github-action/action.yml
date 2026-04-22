@@ -1,0 +1,89 @@
+name: Ironward Security Scanner
+description: >
+  Scan your codebase for 665+ secret patterns, static security issues,
+  and vulnerable dependencies. Zero API key needed for core scanning.
+
+author: rayentr
+
+branding:
+  icon: shield
+  color: red
+
+inputs:
+  path:
+    description: "Path to scan (default = repo root)."
+    required: false
+    default: "."
+
+  fail-on:
+    description: >
+      Minimum severity that fails the build.
+      One of: critical, high, medium, low, never.
+    required: false
+    default: "high"
+
+  scan-secrets:
+    description: "Run scan_for_secrets (offline, 665 pattern families)."
+    required: false
+    default: "true"
+
+  scan-code:
+    description: "Run scan_code static analysis (27 rules, offline)."
+    required: false
+    default: "true"
+
+  scan-deps:
+    description: "Run scan_deps (OSV CVE lookup + typosquat/malware/license)."
+    required: false
+    default: "true"
+
+  scan-url:
+    description: >
+      URL to run scan_url against (optional). Leave empty to skip.
+      Runs against a live deployed URL — security headers, TLS, exposed files.
+    required: false
+    default: ""
+
+  anthropic-api-key:
+    description: >
+      Optional. Anthropic API key. Stored in ~/.ironward/config.json inside
+      the action container so future AI-based scans can use it.
+    required: false
+    default: ""
+
+  openai-api-key:
+    description: "Optional. OpenAI API key for AI tools."
+    required: false
+    default: ""
+
+  fail-on-new-only:
+    description: >
+      Only fail if findings are NEW compared to the base branch
+      (useful for gradual adoption on existing repos).
+    required: false
+    default: "false"
+
+  report-path:
+    description: "Where to write the combined JSON report."
+    required: false
+    default: "ironward-report.json"
+
+outputs:
+  findings-count:
+    description: "Total number of findings across all scanners."
+  critical-count:
+    description: "Number of critical findings."
+  high-count:
+    description: "Number of high findings."
+  medium-count:
+    description: "Number of medium findings."
+  low-count:
+    description: "Number of low findings."
+  score:
+    description: "Overall security score (0-100)."
+  report-path:
+    description: "Path to the JSON report file."
+
+runs:
+  using: docker
+  image: Dockerfile

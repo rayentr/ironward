@@ -1,0 +1,76 @@
+{
+  "name": "ironward",
+  "version": "1.1.0",
+  "description": "Security scanning for the vibe coding era. MCP server + CLI that finds secrets, auth bugs, SQL injection, XSS, IDOR, and vulnerable deps — and opens fix PRs. Works in Cursor, Claude Code, and VS Code. Bring your own model (Anthropic, OpenAI, Gemini, Groq, Ollama).",
+  "type": "module",
+  "bin": {
+    "ironward": "dist/bin.js"
+  },
+  "main": "dist/server.js",
+  "exports": {
+    ".": "./dist/server.js",
+    "./cli": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/bin.ts",
+    "start": "node dist/bin.js",
+    "test": "node --test --import tsx tests/*.test.ts",
+    "pretest": "tsc",
+    "prepublishOnly": "npm run build && npm test",
+    "pack:dry": "npm pack --dry-run"
+  },
+  "files": [
+    "dist",
+    "patterns",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "security",
+    "scanner",
+    "sast",
+    "secrets",
+    "sqli",
+    "xss",
+    "idor",
+    "authz",
+    "osv",
+    "cve",
+    "cursor",
+    "claude-code",
+    "vscode",
+    "anthropic",
+    "openai",
+    "gemini",
+    "groq",
+    "ollama",
+    "ai-security",
+    "typosquat",
+    "supply-chain"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rayentr/ironward.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rayentr/ironward/issues"
+  },
+  "homepage": "https://github.com/rayentr/ironward#readme",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

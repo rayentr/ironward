@@ -1,0 +1,10 @@
+# Valid ignore directive suppresses finding on the next/same line.
+
+const exampleSecret = "sk_live_AbCdEfGhIjKlMnOpQrStUvWxYz"; // securemcp-ignore
+
+# Preceding-line directive also works
+// securemcp-ignore
+const anotherSample = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
+
+# Alias: nosecrets
+const demo = "sk_live_AbCdEfGhIjKlMnOpQrStUvWxYz"; # nosecrets

@@ -85,7 +85,7 @@ test("scan-secrets traverses a directory and skips node_modules", async () => {
   const { code, stdout } = await run(["scan-secrets", dir]);
   // The category fixtures contain critical patterns → exit 2
   assert.equal(code, 2);
-  assert.match(stdout, /Scanned \d+ files?\./);
+  assert.match(stdout, /Scanned \d+ files? in \d+ms/);
 });
 
 test("scan-secrets --format json emits a single JSON object on stdout", async () => {
@@ -118,6 +118,40 @@ test("scan-deps --format json emits clean object with findings/intel arrays", as
   assert.equal(parsed.tool, "scan_deps");
   assert.ok(Array.isArray(parsed.findings));
   assert.ok(Array.isArray(parsed.intel));
+});
+
+test(".ironwardignore skips matching files during scan-secrets", async () => {
+  const { mkdtempSync, rmSync, writeFileSync, mkdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const scratch = mkdtempSync(join(tmpdir(), "ironward-ignore-cli-"));
+  try {
+    mkdirSync(join(scratch, "secrets-to-ignore"));
+    // A real-looking secret that would definitely be flagged
+    writeFileSync(
+      join(scratch, "secrets-to-ignore", "keys.js"),
+      'const k = "AKIAJZ5TESTABCD2PQ3K";\n',
+    );
+    writeFileSync(
+      join(scratch, "app.js"),
+      'const safe = "hello";\n',
+    );
+    // Without the ignore file, the scan should find the AWS key.
+    const before = await run(["scan-secrets", "--format", "json", scratch]);
+    const beforeJson = JSON.parse(before.stdout.trim()) as { files: Array<{ findings: unknown[] }> };
+    assert.ok(beforeJson.files.some((f) => f.findings.length > 0), "expected findings before ignore");
+
+    // With .ironwardignore, the subdir should be skipped.
+    writeFileSync(join(scratch, ".ironwardignore"), "secrets-to-ignore/\n");
+    const after = await run(["scan-secrets", "--format", "json", scratch]);
+    const afterJson = JSON.parse(after.stdout.trim()) as { files: Array<{ findings: unknown[] }> };
+    assert.equal(
+      afterJson.files.reduce((n, f) => n + f.findings.length, 0),
+      0,
+      "expected zero findings after .ironwardignore",
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 test("--format with invalid value exits 2", async () => {

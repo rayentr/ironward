@@ -211,6 +211,36 @@ Output format
 
 ---
 
+## Incremental scanning + `.ironwardignore`
+
+Ironward caches per-file scan results at `~/.ironward/cache.json` keyed by content hash. On re-scan, unchanged files are served from cache — typically **5–10×** faster on warm runs.
+
+Pre-commit hooks become instant:
+
+```bash
+# Only scan files about to be committed.
+ironward scan-secrets --staged
+
+# Or files changed relative to a branch.
+ironward scan-secrets --since=main
+
+# Bust the cache if you need a fresh run.
+ironward scan-secrets --no-cache .
+```
+
+Exclude files via `.ironwardignore` (gitignore syntax):
+
+```
+# .ironwardignore
+fixtures/synthetic-secrets/
+generated/
+*.test.ts
+```
+
+Ironward also honors your existing `.gitignore`.
+
+---
+
 ## What makes it different
 
 - **Offline-first.** Four of nine tools run with zero network (except OSV.dev for CVE lookups). Bring an API key only when you want AI reasoning for auth/SQLi/XSS/IDOR.

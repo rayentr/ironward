@@ -8,7 +8,13 @@ import { formatReport, runScanSecrets, type FileReport } from "./tools/scan-secr
 import { formatDepsReport, runScanDeps, parseManifest } from "./tools/scan-deps.js";
 import { runScanUrl, formatUrlReport } from "./tools/scan-url.js";
 import { runScanCode, formatCodeReport } from "./tools/scan-code.js";
+import { scanText } from "./engines/secret-engine.js";
+import { scanCodeRules, severityRank as codeSeverityRank } from "./engines/code-rules.js";
 import { record, fingerprintFor, isRecordingEnabled } from "./engines/recorder.js";
+import { IgnoreMatcher, DEFAULT_IGNORE_PATTERNS } from "./engines/ignore.js";
+import { ScanCache, sha256 } from "./engines/scan-cache.js";
+import { filesForScope, isGitRepo, parseScopeFromArgs, type GitScope } from "./engines/git-diff.js";
+import { mapConcurrent, defaultConcurrency } from "./engines/concurrent.js";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json") as { version: string; name: string };
@@ -38,6 +44,18 @@ Misc:
 Output format:
   --format json | text              scan commands accept --format json for CI use
                                     (default: text)
+
+Git-scoped scanning (makes pre-commit hooks instant):
+  --staged                          scan only staged files
+  --changed                         scan only uncommitted tracked changes
+  --since <ref>                     scan only files changed since <ref>
+
+Cache:
+  --no-cache                        ignore ~/.ironward/cache.json for this run
+
+Ignore rules (applied to every scan):
+  - .gitignore and .ironwardignore (if present) at the project root
+  - Built-in skips: node_modules/, dist/, build/, .next/, *.min.js, *.map, …
 
 Exit codes for CLI scans:
   0  clean
@@ -77,7 +95,18 @@ const TEXT_EXTS = new Set([
   ".vue", ".svelte",
 ]);
 
-async function* walk(root: string): AsyncGenerator<string> {
+async function buildIgnoreMatcher(projectRoot: string): Promise<IgnoreMatcher> {
+  // Seed with defaults, then layer on .gitignore and .ironwardignore if present.
+  const patterns = [...DEFAULT_IGNORE_PATTERNS];
+  const extra = await IgnoreMatcher.fromFiles(projectRoot, [
+    join(projectRoot, ".gitignore"),
+    join(projectRoot, ".ironwardignore"),
+  ]);
+  for (const r of extra.rules) patterns.push(r.raw);
+  return new IgnoreMatcher(projectRoot, patterns);
+}
+
+async function* walk(root: string, matcher?: IgnoreMatcher): AsyncGenerator<string> {
   const st = await stat(root).catch(() => null);
   if (!st) return;
   if (st.isFile()) {
@@ -85,21 +114,35 @@ async function* walk(root: string): AsyncGenerator<string> {
     return;
   }
   if (!st.isDirectory()) return;
+
+  const ign = matcher ?? (await buildIgnoreMatcher(root));
+  yield* walkInner(root, ign);
+}
+
+async function* walkInner(dir: string, ign: IgnoreMatcher): AsyncGenerator<string> {
   let entries: Dirent[];
   try {
-    entries = (await readdir(root, { withFileTypes: true })) as Dirent[];
+    entries = (await readdir(dir, { withFileTypes: true })) as Dirent[];
   } catch {
     // Unreadable dir (EPERM / EACCES on macOS sandbox, permission issues, etc.) — skip.
     return;
   }
   for (const e of entries) {
-    if (e.name.startsWith(".") && e.name !== ".env") {
-      if (!SKIP_DIRS.has(e.name)) continue;
-    }
+    const full = join(dir, e.name);
+    const isDir = e.isDirectory();
+
+    // Always skip known system/build dirs by name (cheap short-circuit).
     if (SKIP_DIRS.has(e.name)) continue;
-    const full = join(root, e.name);
-    if (e.isDirectory()) {
-      yield* walk(full);
+    if (e.name.startsWith(".") && e.name !== ".env" && !SKIP_DIRS.has(e.name)) {
+      // Hidden dotfile dirs/files — only allow .env through; ignore the rest unless whitelisted by name.
+      continue;
+    }
+
+    // Apply ignore rules (.gitignore + .ironwardignore + defaults).
+    if (ign.ignores(full, isDir)) continue;
+
+    if (isDir) {
+      yield* walkInner(full, ign);
     } else if (e.isFile()) {
       const dot = e.name.lastIndexOf(".");
       const ext = dot >= 0 ? e.name.slice(dot).toLowerCase() : "";
@@ -136,6 +179,23 @@ async function collectFiles(targets: string[]): Promise<string[]> {
   return out;
 }
 
+/**
+ * If --staged / --changed / --since was passed, return only the intersection
+ * of git-diff files and our walker's filter (.gitignore + .ironwardignore + text exts).
+ * Otherwise, return the full walker output.
+ */
+async function collectFilesForScope(targets: string[], scope: GitScope | null): Promise<string[]> {
+  const walked = await collectFiles(targets);
+  if (!scope) return walked;
+  const cwd = process.cwd();
+  if (!(await isGitRepo(cwd))) {
+    console.error("Git scope requested (--staged / --changed / --since) but not inside a git repo.");
+    return [];
+  }
+  const scoped = new Set(await filesForScope(scope, cwd));
+  return walked.filter((f) => scoped.has(f));
+}
+
 function exitCodeForSecrets(reports: FileReport[]): number {
   let total = 0;
   for (const r of reports) for (const f of r.findings) {
@@ -146,6 +206,35 @@ function exitCodeForSecrets(reports: FileReport[]): number {
 }
 
 export type OutputFormat = "text" | "json";
+
+class ProgressReporter {
+  private readonly enabled: boolean;
+  private lastLen = 0;
+  private lastTick = 0;
+
+  constructor(public total: number) {
+    // Only show progress on a TTY, and not when the user piped to a file.
+    this.enabled = Boolean(process.stderr.isTTY) && !process.env.CI && total > 10;
+  }
+
+  update(done: number, currentFile: string): void {
+    if (!this.enabled) return;
+    const now = Date.now();
+    if (now - this.lastTick < 33 && done !== this.total) return;
+    this.lastTick = now;
+    const pct = this.total === 0 ? 100 : Math.floor((done / this.total) * 100);
+    const bar = `[${"█".repeat(Math.floor(pct / 5)).padEnd(20, "·")}]`;
+    const shortFile = currentFile.length > 40 ? "…" + currentFile.slice(-39) : currentFile;
+    const line = `\rScanning ${bar} ${pct.toString().padStart(3)}%  ${done}/${this.total}  ${shortFile}`;
+    this.lastLen = line.length;
+    process.stderr.write(line);
+  }
+
+  clear(): void {
+    if (!this.enabled) return;
+    process.stderr.write("\r" + " ".repeat(this.lastLen) + "\r");
+  }
+}
 
 function writeStdoutSync(s: string): void {
   // Synchronous stdout write avoids truncation when output > 64KB pipe buffer.
@@ -164,9 +253,10 @@ function writeStdoutSync(s: string): void {
   }
 }
 
-export function parseArgs(args: string[]): { format: OutputFormat; rest: string[] } {
+export function parseArgs(args: string[]): { format: OutputFormat; scope: GitScope | null; noCache: boolean; rest: string[] } {
   let format: OutputFormat = "text";
-  const rest: string[] = [];
+  let noCache = false;
+  const preRest: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--format" || a === "-f") {
@@ -179,17 +269,20 @@ export function parseArgs(args: string[]): { format: OutputFormat; rest: string[
       if (eq === "json" || eq === "text") { format = eq as OutputFormat; continue; }
       throw new Error(`--format expects "json" or "text", got: ${eq}`);
     }
-    rest.push(a);
+    if (a === "--no-cache") { noCache = true; continue; }
+    preRest.push(a);
   }
-  return { format, rest };
+  const { scope, rest } = parseScopeFromArgs(preRest);
+  return { format, scope, noCache, rest };
 }
 
-async function runSecretsCli(targets: string[], format: OutputFormat = "text"): Promise<number> {
-  if (targets.length === 0) {
+async function runSecretsCli(targets: string[], format: OutputFormat = "text", scope: GitScope | null = null): Promise<number> {
+  if (targets.length === 0 && !scope) {
     if (format === "json") writeStdoutSync(JSON.stringify({ tool: "scan_for_secrets", error: "no paths provided" }) + "\n");
     else console.error("ironward scan-secrets: no paths provided.");
     return 2;
   }
+  if (targets.length === 0 && scope) targets = ["."];
   for (const t of targets) {
     const w = warnIfDangerousRoot(t);
     if (w) {
@@ -198,29 +291,73 @@ async function runSecretsCli(targets: string[], format: OutputFormat = "text"): 
       return 2;
     }
   }
-  const files = await collectFiles(targets);
+  const files = await collectFilesForScope(targets, scope);
   if (files.length === 0) {
     if (format === "json") writeStdoutSync(JSON.stringify({ tool: "scan_for_secrets", filesScanned: 0, files: [] }) + "\n");
     else console.log("No scannable files found.");
     return 0;
   }
-  const inputs: Array<{ path: string; content: string }> = [];
-  for (const f of files) {
-    try {
-      const content = await readFile(f, "utf8");
-      inputs.push({ path: relative(process.cwd(), f), content });
-    } catch {
-      // skip unreadable files silently
-    }
-  }
+
   const started = new Date().toISOString();
   const startMs = Date.now();
-  const out = await runScanSecrets({ files: inputs, context: "on-demand" });
+
+  const cache = await ScanCache.load();
+  const progress = new ProgressReporter(files.length);
+  const streamText = format === "text";
+  let cacheHits = 0;
+  let done = 0;
+
+  const reports = await mapConcurrent(
+    files,
+    defaultConcurrency(),
+    async (f) => {
+      const rel = relative(process.cwd(), f);
+      let content = "";
+      try { content = await readFile(f, "utf8"); } catch { return { path: rel, findings: [] } as FileReport; }
+      const contentHash = sha256(content).slice(0, 16);
+      let findings = cache.lookup<any>(f, "scan_for_secrets", contentHash);
+      if (findings === null) {
+        findings = await scanText(content, rel);
+        cache.store(f, "scan_for_secrets", contentHash, findings);
+      } else {
+        cacheHits++;
+      }
+      return { path: rel, findings } as FileReport;
+    },
+    (report) => {
+      done++;
+      if (streamText && report.findings.length > 0) {
+        progress.clear();
+        for (const fnd of report.findings) {
+          const sev = fnd.severity.toUpperCase();
+          console.log(`[${sev}] ${report.path}:${fnd.line}  ${fnd.type}`);
+          if (fnd.description) console.log(`  ${fnd.description}`);
+        }
+      }
+      progress.update(done, report.path);
+    },
+  );
+  progress.clear();
+  await cache.save().catch(() => {/* cache is best-effort */});
+
+  const bySev: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+  let total = 0;
+  for (const r of reports) for (const f of r.findings) {
+    total++;
+    if (f.severity in bySev) bySev[f.severity]++;
+  }
+  const out = {
+    files: reports,
+    summary: { totalFindings: total, bySeverity: bySev as any, blocked: false },
+  };
+
   if (format === "json") {
-    writeStdoutSync(JSON.stringify({ tool: "scan_for_secrets", filesScanned: inputs.length, ...out }) + "\n");
+    writeStdoutSync(JSON.stringify({ tool: "scan_for_secrets", filesScanned: files.length, cached: cacheHits, ...out }) + "\n");
   } else {
-    console.log(formatReport(out));
-    console.log(`\nScanned ${inputs.length} file${inputs.length === 1 ? "" : "s"}.`);
+    if (total === 0) console.log("No secrets detected. All scanned files are clean.");
+    else console.log(`\nScan summary: ${total} findings (${bySev.critical} critical, ${bySev.high} high, ${bySev.medium} medium, ${bySev.low} low).`);
+    const cacheNote = cacheHits > 0 ? ` (${cacheHits} cached)` : "";
+    console.log(`Scanned ${files.length} file${files.length === 1 ? "" : "s"} in ${Date.now() - startMs}ms${cacheNote}.`);
   }
 
   if (isRecordingEnabled() && format === "text") {
@@ -291,12 +428,13 @@ async function runUrlCli(targets: string[], format: OutputFormat = "text"): Prom
   return hasCritOrHigh ? 2 : 1;
 }
 
-async function runCodeCli(targets: string[], format: OutputFormat = "text"): Promise<number> {
-  if (targets.length === 0) {
+async function runCodeCli(targets: string[], format: OutputFormat = "text", scope: GitScope | null = null): Promise<number> {
+  if (targets.length === 0 && !scope) {
     if (format === "json") writeStdoutSync(JSON.stringify({ tool: "scan_code", error: "no paths provided" }) + "\n");
     else console.error("ironward scan-code: no paths provided.");
     return 2;
   }
+  if (targets.length === 0 && scope) targets = ["."];
   for (const t of targets) {
     const w = warnIfDangerousRoot(t);
     if (w) {
@@ -305,22 +443,61 @@ async function runCodeCli(targets: string[], format: OutputFormat = "text"): Pro
       return 2;
     }
   }
-  const files = await collectFiles(targets);
-  const inputs: Array<{ path: string; content: string }> = [];
-  for (const f of files) {
-    try {
-      const content = await readFile(f, "utf8");
-      inputs.push({ path: relative(process.cwd(), f), content });
-    } catch {
-      /* skip */
-    }
-  }
-  const out = await runScanCode({ files: inputs });
+  const files = await collectFilesForScope(targets, scope);
+  const startMs = Date.now();
+  const cache = await ScanCache.load();
+  let cacheHits = 0;
+  const progress = new ProgressReporter(files.length);
+  const streamText = format === "text";
+  const bySeverity: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+  let done = 0;
+
+  const reports = await mapConcurrent(
+    files,
+    defaultConcurrency(),
+    async (f) => {
+      const rel = relative(process.cwd(), f);
+      let content = "";
+      try { content = await readFile(f, "utf8"); } catch { return { path: rel, findings: [] as ReturnType<typeof scanCodeRules> }; }
+      const contentHash = sha256(content).slice(0, 16);
+      let findings = cache.lookup<ReturnType<typeof scanCodeRules>[number]>(f, "scan_code", contentHash);
+      if (findings === null) {
+        findings = scanCodeRules(content);
+        cache.store(f, "scan_code", contentHash, findings);
+      } else {
+        cacheHits++;
+      }
+      return { path: rel, findings };
+    },
+    (report) => {
+      done++;
+      for (const fnd of report.findings) if (fnd.severity in bySeverity) bySeverity[fnd.severity]++;
+      if (streamText && report.findings.length > 0) {
+        progress.clear();
+        const sorted = [...report.findings].sort((a, b) => codeSeverityRank(b.severity) - codeSeverityRank(a.severity) || a.line - b.line);
+        for (const fnd of sorted) {
+          console.log(`[${fnd.severity.toUpperCase()}] ${report.path}:L${fnd.line}  ${fnd.title}  (${fnd.ruleId})`);
+        }
+      }
+      progress.update(done, report.path);
+    },
+  );
+  progress.clear();
+  await cache.save().catch(() => {/* best-effort */});
+
+  const totalFindings = reports.reduce((n, r) => n + r.findings.length, 0);
+  const out = {
+    files: reports,
+    summary: { totalFindings, bySeverity: bySeverity as any, filesScanned: files.length },
+  };
+
   if (format === "json") {
-    writeStdoutSync(JSON.stringify({ tool: "scan_code", filesScanned: inputs.length, ...out }) + "\n");
+    writeStdoutSync(JSON.stringify({ tool: "scan_code", filesScanned: files.length, cached: cacheHits, ...out }) + "\n");
   } else {
-    console.log(formatCodeReport(out));
-    console.log(`\nScanned ${inputs.length} file${inputs.length === 1 ? "" : "s"} with ${out.summary.totalFindings} finding${out.summary.totalFindings === 1 ? "" : "s"}.`);
+    if (totalFindings === 0) console.log(`scan_code: no issues across ${files.length} file${files.length === 1 ? "" : "s"}.`);
+    else console.log(`\nscan_code: ${totalFindings} findings (${bySeverity.critical} critical, ${bySeverity.high} high, ${bySeverity.medium} medium, ${bySeverity.low} low) in ${Date.now() - startMs}ms.`);
+    const cacheNote = cacheHits > 0 ? ` (${cacheHits} cached)` : "";
+    console.log(`Scanned ${files.length} file${files.length === 1 ? "" : "s"}${cacheNote}.`);
   }
 
   if (isRecordingEnabled() && format === "text") {
@@ -347,7 +524,7 @@ async function runCodeCli(targets: string[], format: OutputFormat = "text"): Pro
   return out.summary.bySeverity.critical > 0 || out.summary.bySeverity.high > 0 ? 2 : 1;
 }
 
-async function runFullScanCli(targets: string[], format: OutputFormat = "text"): Promise<number> {
+async function runFullScanCli(targets: string[], format: OutputFormat = "text", scope: GitScope | null = null): Promise<number> {
   const target = targets[0] ?? ".";
   const warning = warnIfDangerousRoot(target);
   if (warning) {
@@ -381,9 +558,9 @@ async function runFullScanCli(targets: string[], format: OutputFormat = "text"):
   const track = (code: number) => { if (code > worstExit) worstExit = code; };
 
   console.log("── scan-secrets ──");
-  track(await runSecretsCli([target]));
+  track(await runSecretsCli([target], "text", scope));
   console.log("\n── scan-code ──");
-  track(await runCodeCli([target]));
+  track(await runCodeCli([target], "text", scope));
   console.log("\n── scan-deps ──");
   track(await runDepsCli([target]));
   console.log(`\nDone in ${Date.now() - startedWhole}ms.`);
@@ -505,14 +682,15 @@ export async function runCli(argv: string[]): Promise<number> {
   }
 
   const cmd = args[0];
-  let parsed: { format: OutputFormat; rest: string[] };
+  let parsed: ReturnType<typeof parseArgs>;
   try {
     parsed = parseArgs(args.slice(1));
   } catch (err) {
     console.error((err as Error).message);
     return 2;
   }
-  const { format, rest } = parsed;
+  const { format, scope, noCache, rest } = parsed;
+  if (noCache) process.env.IRONWARD_NO_CACHE = "1";
 
   switch (cmd) {
     case "-h":
@@ -527,11 +705,11 @@ export async function runCli(argv: string[]): Promise<number> {
       await startMcpServer();
       return 0;
     case "scan-secrets":
-      return await runSecretsCli(rest, format);
+      return await runSecretsCli(rest, format, scope);
     case "scan":
-      return await runFullScanCli(rest, format);
+      return await runFullScanCli(rest, format, scope);
     case "scan-code":
-      return await runCodeCli(rest, format);
+      return await runCodeCli(rest, format, scope);
     case "scan-deps":
       return await runDepsCli(rest, format);
     case "scan-url":

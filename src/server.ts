@@ -15,7 +15,7 @@ import { MissingApiKeyError } from "./engines/claude-client.js";
 import { MissingGitHubTokenError } from "./engines/github-client.js";
 
 const server = new McpServer(
-  { name: "ironward", version: "1.1.0" },
+  { name: "ironward", version: "1.2.0" },
   { capabilities: { tools: {} } },
 );
 

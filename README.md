@@ -1,116 +1,128 @@
-# Ironward
+<h1 align="center">Ironward</h1>
 
-AI-powered security scanner delivered as an MCP server and CLI. Scans your code for leaked secrets, vulnerable auth logic, injection flaws, and CVE-affected dependencies — and opens fix PRs — directly inside Cursor, Claude Code, and VS Code.
+<p align="center"><em>Security scanning for the vibe coding era.</em></p>
 
-[![npm](https://img.shields.io/npm/v/ironward.svg)](https://www.npmjs.com/package/ironward)
-[![license](https://img.shields.io/npm/l/ironward.svg)](./LICENSE)
+<p align="center">
+  <a href="https://www.npmjs.com/package/ironward"><img alt="npm" src="https://img.shields.io/npm/v/ironward?color=9af99a&label=npm"></a>
+  <a href="https://github.com/rayentr/ironward/actions"><img alt="tests" src="https://img.shields.io/badge/tests-166%2F166-9af99a"></a>
+  <a href="./LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-9af99a"></a>
+  <a href="https://www.npmjs.com/package/ironward"><img alt="downloads" src="https://img.shields.io/npm/dm/ironward?color=9af99a"></a>
+</p>
 
-> **v0.10.0** — **9 tools**. New `scan_code` (27 offline static-analysis rules, no API key needed). 270 secret patterns (+web3, +more AI/ML, +Supabase/Xata/Fauna). `scan_url` now grades sites A+ through F. New `ironward scan <path>` meta-command runs every offline scanner in one pass.
+<p align="center">
+  An open-source <strong>MCP server</strong>, <strong>CLI</strong>, and <strong>GitHub Action</strong> that finds
+  hardcoded secrets, auth bugs, SQL injection, XSS, IDOR, and vulnerable dependencies in your code —
+  and opens a fix PR. Four of its tools work fully offline, no API key required.
+</p>
 
-## Tools
-
-### `scan_for_secrets` — offline, instant
-
-- **212 pattern families** — AWS, GCP, Azure, DigitalOcean, Alibaba, Stripe, GitHub (classic/oauth/fine-grained), GitLab, OpenAI, Anthropic, HuggingFace, Slack, Discord, SendGrid, Postgres/Mongo/Redis URLs, PEM / OpenSSH / PGP private keys, npm, DockerHub, Notion, Linear, Figma, Tailscale, and many more.
-- **Shannon-entropy fallback** for unknown secrets, with a placeholder + UUID/SHA allowlist to keep false positives near zero.
-- **Three input modes** — inline `files`, on-disk `paths`, or a raw `content` snippet.
-- **Context-aware gating** — `context: "pre-commit"` returns `isError: true` on critical/high findings so MCP clients can block commits.
-- **Redaction by default** — only truncated fingerprints are returned.
-- **Line-level suppression** — `// ironward-ignore` on the same or prior line.
-
-### `scan_auth_logic` — Claude Opus
-
-Deep analysis of authentication/authorization defects — the class of bugs pattern scanners cannot catch:
-
-- Backwards auth checks (`if (user)` when the intent is `if (!user)`)
-- Missing ownership / tenancy checks (resource fetched by ID with no check that the caller owns it)
-- Privilege-escalation paths and role comparison bugs
-- Auth middleware that runs too late or is skipped on error paths
-- JWT validation gaps — `alg: none`, unchecked `exp`/`aud`/`iss`, skipped signature verification
-- Session fixation, unsafe session handling, plaintext password storage in reset flows
-
-A cheap keyword pre-filter skips the model entirely when the file has no auth surface, so unrelated code is free. Requires `ANTHROPIC_API_KEY`.
-
-### `scan_sqli` — Claude Sonnet + pre-filter
-
-Targets query-construction defects a pattern scanner alone cannot judge:
-
-- String concatenation / template literals / f-strings / `%`-format / `str.format` building SQL
-- ORM `raw` / `$queryRawUnsafe` / `knex.raw` / `sequelize.query` with interpolated arguments
-- Second-order injection (untrusted data stored, then concatenated later)
-- Dynamic identifiers (table/column names coming from user input)
-
-A 24-rule cross-language regex pre-filter (JS/TS, Python, Go, Java, Ruby, PHP) surfaces suspect lines; Sonnet confirms or dismisses. Files with no query-construction patterns skip the model entirely.
-
-### `scan_xss` — Claude Sonnet + framework-aware pre-filter
-
-Catches XSS across four flavors:
-
-- **Reflected** — request input flows into the response body without encoding
-- **Stored** — persisted input later rendered without escaping
-- **DOM** — user-controlled data reaches dangerous sinks (`innerHTML`, `outerHTML`, `document.write`, `insertAdjacentHTML`, `eval`, `new Function`, string-`setTimeout`)
-- **Framework-specific bypasses** — React `dangerouslySetInnerHTML`, Vue `v-html`, Angular `[innerHTML]` / `bypassSecurityTrust*`, Svelte `{@html}`, SolidJS `innerHTML={}`
-- **Template injection** — EJS `<%- %>`, Handlebars/Mustache `{{{ }}}`, Jinja `|safe` / `autoescape=False`, Flask `Markup()`, Django `|safe`
-- **Unsafe PHP** — `echo $_GET/$_POST/$_REQUEST`
-
-A 25-rule pre-filter with sanitizer allowlist (DOMPurify, `textContent`, `he.encode`, etc.) keeps false positives near zero. Sonnet confirms real defects.
-
-### `scan_idor` — Claude Opus, broken-access-control focus
-
-The #1 OWASP category. Catches:
-
-- **Missing ownership checks** — a handler fetches a resource by ID with no verification that the requester owns it
-- **Horizontal privilege escalation** — user A modifying user B's data by changing an ID
-- **Mass assignment / overposting** — `req.body` spread into updates, letting attackers set `role`, `tenantId`, `credits`, `isAdmin`
-- **Predictable sequential IDs** — `parseInt(req.params.id)` patterns enabling enumeration
-- **Unprotected admin routes** — endpoints with `authRequired` but no role check
-- **Role-from-input** — authorization decisions based on client-controlled flags
-
-A 12-rule pre-filter surfaces data-access and admin sites; Opus reasons over the full request flow. Reports ownership-hint density to weight confidence.
-
-### `scan_url` — live URL audit (no model call)
-
-Point it at a deployed URL and get a misconfiguration report. Network-only, rule-based, no API key needed.
-
-- **Security headers** — missing or weak CSP (incl. `'unsafe-inline'` / `'unsafe-eval'`), HSTS, X-Frame-Options / `frame-ancestors`, X-Content-Type-Options, Referrer-Policy
-- **Cookie flags** — missing `Secure`, `HttpOnly` on session-like cookies, `SameSite` absent
-- **CORS** — wildcard + credentials (critical), `null` origin acceptance
-- **TLS enforcement** — plaintext HTTP responses
-- **Exposed dev/build files** — `/.env`, `/.git/config`, `/.DS_Store`, `firebase.json`, `.vscode/settings.json`, `.npmrc`
-- **Error leakage** — one 404 probe to detect stack traces / absolute filesystem paths in responses
-- **Version disclosure** — `Server`, `X-Powered-By` headers exposing versions
-
-> **Only scan sites you own or are authorized to test.**
-
-### `scan_deps` — offline parsing + OSV.dev
-
-Parses `package.json`, `requirements.txt`, and `Pipfile.lock`. Queries OSV.dev for each unique `(ecosystem, package, version)` tuple and returns findings with CVE aliases, affected ranges, fixed versions, and reference URLs — sorted by CVSS severity.
-
-### `scan_code` — 27 offline static rules, no API key
-
-Pure pattern-matching static analysis. Zero network, zero Claude, instant. Catches:
-
-- **Dangerous functions** — `eval`, `new Function`, `child_process.exec/spawn` with request input, `setuid`
-- **Weak crypto** — MD5, SHA-1, DES/3DES, RC4, `Math.random` in token/id/secret context, predictable JWT signing secrets
-- **Unsafe I/O** — `path.join`/`path.resolve`/`fs.readFile` with request input (path traversal), plaintext HTTP in fetch/axios
-- **Web flaws** — SSRF (`fetch(req.body.url)`), open redirects, prototype pollution via `merge(obj, req.body)`, SQL string concat
-- **Framework** — CORS origin wildcard in code, Express app without helmet, auth routes without rate limiting
-- **JWT** — `alg: "none"`, hardcoded weak signing secrets (`"secret"`, `"changeme"`, …)
-- **Debug / logging** — `debugger;` statements, `console.log(password)`, commented-out secrets, TODOs flagging unfinished auth
-
-Every finding carries a rationale and a concrete fix. `// ironward-ignore` on the same or prior line suppresses.
-
-### `fix_and_pr` — Opus + GitHub (multi-file + self-validation)
-
-Given any finding from any scanner, Opus produces a minimal, surgical fix — **across one or more files** — then Ironward re-runs the relevant scanner on the fixed output. If residual issues remain, it retries (max 2 attempts) with the residual passed back as context. Only when validation passes does it create a branch, commit every changed file, and open a single PR.
-
-The PR body carries the OWASP reference, exploit scenario, severity, and validation status. Set `dryRun: true` to preview, `skipValidation: true` to bypass the loop. Requires `ANTHROPIC_API_KEY` and `GITHUB_TOKEN` with `repo` scope.
+---
 
 ## Install
 
-### Cursor (`~/.cursor/mcp.json`)
+```bash
+# Scan the current project — no install, no API key.
+npx ironward scan .
+```
+
+That's it. Runs offline, streams findings, exits non-zero on criticals so CI fails.
+
+Or install globally:
+
+```bash
+npm install -g ironward
+ironward scan ./src
+```
+
+---
+
+## The 9 tools
+
+| Tool | Runtime | What it finds |
+|------|---------|---------------|
+| `scan_for_secrets` | **Offline** | 665 pattern families — AWS, GCP, Azure, Stripe, PayPal, GitHub, OpenAI, Anthropic, Supabase, PlanetScale, Ethereum/Solana wallets, Firebase, + Shannon entropy |
+| `scan_code` | **Offline** | 27 static rules — `eval`, command injection, path traversal, weak crypto (MD5/SHA-1/DES), SSRF, prototype pollution, JWT `alg:none`, CORS wildcard, logged secrets |
+| `scan_deps` | **Offline** | OSV.dev CVE lookup + typosquat detection + known-malware list + abandoned packages + license compliance (copyleft/unlicensed) |
+| `scan_url` | **Offline** | Letter-graded web scan — headers, CORS, cookies, exposed `.env` / `.git`, source maps, admin panels, API docs, Supabase/Firebase keys in HTML, TLS expiry |
+| `scan_auth_logic` | AI | Backwards auth checks, missing ownership, privilege escalation, bypassable middleware, JWT `alg:none` acceptance, session fixation |
+| `scan_sqli` | AI | SQL injection across JS/TS, Python, Go, Ruby, PHP, Java — string concat, template literals, ORM `raw` / `$queryRawUnsafe` |
+| `scan_xss` | AI | DOM + server-side XSS — `innerHTML`, `dangerouslySetInnerHTML`, Vue `v-html`, Svelte `{@html}`, EJS unescaped, reflected Express/Koa responses |
+| `scan_idor` | AI | Routes reading an ID from params without an owner check. Prisma/Mongoose mass-assignment via `data: req.body` |
+| `fix_and_pr` | AI | Generates surgical multi-file patches with validation loop — re-scans the fix before opening the PR |
+
+**Bring your own model.** AI tools work with Anthropic, OpenAI, Gemini, Groq, or a fully-local Ollama install.
+
+---
+
+## Demo
+
+```
+$ npx ironward scan ./src
+Ironward — offline scan of ./src
+
+── scan-secrets ──
+src/config.js
+  [CRITICAL] L14:1  AWS access key ID  (aws_access_key)
+      AKIA***REDACTED***
+
+── scan-code ──
+src/api/upload.js
+  [HIGH] L42:5  eval() call  (eval-call)
+      why: eval executes arbitrary code — a direct RCE sink when fed user input.
+      fix: Remove eval. Parse data explicitly (JSON.parse, Function constructors).
+
+── scan-deps ──
+2 vulnerabilities across 14 dependencies — 1 critical, 1 high, 0 medium.
+
+[CRITICAL] lodash@4.17.15  GHSA-p6mc-m468-83gw  — fixed in 4.17.19
+  Prototype pollution in lodash
+
+Done in 412ms.  Exit 2.
+```
+
+Exit codes: `0` clean · `1` low/medium findings · `2` critical or high findings (fails CI).
+
+---
+
+## `ironward login` — use AI-powered scanners
+
+Offline tools are always on. To enable `scan_auth_logic`, `scan_sqli`, `scan_xss`, `scan_idor`, and `fix_and_pr`, pick a provider:
+
+```bash
+ironward login
+```
+
+Interactive picker:
+
+```
+Ironward — pick an AI provider.
+
+  1. Anthropic   — Claude Opus/Sonnet — best reasoning
+  2. OpenAI      — GPT-4o — great alternative
+  3. Google      — Gemini 1.5 Pro — good for XSS/SQLi
+  4. Groq        — Llama 3 — fastest, cheapest
+  5. Ollama      — Local — free, private, no cloud
+  6. Skip        — offline tools only
+
+Choose a provider [1-6]:
+```
+
+Key is stored in `~/.ironward/config.json` (chmod 600) and never leaves your machine.
+
+```bash
+ironward whoami     # show current provider + model
+ironward logout     # remove saved config
+ironward free       # list tools that work without any API key
+```
+
+---
+
+## Use in Cursor / Claude Code / VS Code
+
+<details>
+<summary><strong>Cursor</strong></summary>
 
 ```json
+// ~/.cursor/mcp.json
 {
   "mcpServers": {
     "ironward": {
@@ -121,18 +133,21 @@ The PR body carries the OWASP reference, exploit scenario, severity, and validat
   }
 }
 ```
+</details>
 
-`ANTHROPIC_API_KEY` is only required for Claude-backed tools (`scan_auth_logic`, `scan_sqli`, `fix_and_pr`). `scan_for_secrets` and `scan_deps` work without it.
-
-### Claude Code
+<details>
+<summary><strong>Claude Code</strong></summary>
 
 ```bash
 claude mcp add ironward -- npx -y ironward@latest
 ```
+</details>
 
-### VS Code (`.vscode/mcp.json`)
+<details>
+<summary><strong>VS Code</strong></summary>
 
 ```json
+// .vscode/mcp.json
 {
   "servers": {
     "ironward": {
@@ -142,114 +157,100 @@ claude mcp add ironward -- npx -y ironward@latest
   }
 }
 ```
+</details>
 
-### CLI (no MCP client required)
+`ANTHROPIC_API_KEY` (or any other provider key) is only required for the AI tools. Offline tools work without it.
 
-```bash
-npx ironward scan .                                # run EVERY offline scanner in one pass
-npx ironward scan-secrets src/                     # 270 secret patterns + entropy
-npx ironward scan-code src/                        # 27 static analysis rules
-npx ironward scan-deps package.json                # CVE lookup via OSV.dev
-npx ironward scan-url https://your-deployed-app.com
-npx ironward --help
+---
+
+## GitHub Action
+
+Scan on every push and pull request. Inline PR annotations, job summary with full findings table, zero config.
+
+```yaml
+# .github/workflows/security.yml
+name: Security
+on: [push, pull_request]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rayentr/ironward/github-action@v1
+        with:
+          fail-on: critical
 ```
 
-**Zero API key required** for the entire CLI. Just `npx` and go.
+Full configuration and outputs in [github-action/README.md](./github-action/README.md).
 
-Exit codes: `0` clean · `1` findings (no critical/high) · `2` critical or high findings present.
+---
 
-## Dashboard
+## CLI reference
 
-A local Next.js dashboard lives in [dashboard/](dashboard/). Run it to see scan history, severity distribution, and per-repo security scores — all stored locally in `~/.ironward/ironward.db`.
+```
+Scanning
+  ironward scan <path>              run every offline scanner (recommended)
+  ironward scan-secrets <path>...   665 pattern families
+  ironward scan-code <path>...      27 static analysis rules
+  ironward scan-deps <path>...      OSV CVE + typosquat / malware / license
+  ironward scan-url <https-url>     security headers, TLS, exposed files
 
-```bash
-cd dashboard && npm install && npm run dev   # http://localhost:3737
+Provider
+  ironward login                    pick AI provider (interactive)
+  ironward logout / whoami / free
+
+Misc
+  ironward --version
+  ironward --help
+
+Output format
+  --format json                     machine-readable output for CI
+  --format text                     (default)
 ```
 
-Record scans from the CLI by setting `IRONWARD_RECORD=1`:
+---
+
+## What makes it different
+
+- **Offline-first.** Four of nine tools run with zero network (except OSV.dev for CVE lookups). Bring an API key only when you want AI reasoning for auth/SQLi/XSS/IDOR.
+- **It fixes the bug, not just finds it.** `fix_and_pr` generates multi-file patches and re-scans the fix before opening a PR.
+- **Bring your own model.** Anthropic, OpenAI, Gemini, Groq, Ollama. Your key stays local. No Ironward cloud.
+- **Three-line install.** No signup, no SSO handshake, no per-seat pricing.
+- **Self-scanned.** Ironward scans its own source on every commit — **zero findings**.
+
+---
+
+## Contributing
+
+PRs welcome. The codebase is small and well-tested:
 
 ```bash
-IRONWARD_RECORD=1 IRONWARD_REPO=you/myapp npx ironward scan-secrets src/
-IRONWARD_RECORD=1 IRONWARD_REPO=you/myapp npx ironward scan-url https://myapp.com
-```
-
-## Local development
-
-```bash
+git clone https://github.com/rayentr/ironward
+cd ironward
 npm install
+npm test          # 166 tests, all offline, no API calls
 npm run build
-npm test
+node dist/bin.js scan ./src
 ```
 
-Or point your IDE config at the local checkout:
+Good first issues:
 
-```json
-{
-  "mcpServers": {
-    "ironward-dev": {
-      "command": "node",
-      "args": ["/absolute/path/to/ironward/dist/bin.js"]
-    }
-  }
-}
-```
+- Add a new secret-pattern family — edit [`patterns/secrets.json`](./patterns/secrets.json) and add a fixture to [`tests/fixtures/categories/`](./tests/fixtures/categories).
+- Add a static-analysis rule — edit [`src/engines/code-rules.ts`](./src/engines/code-rules.ts).
+- Teach `scan_url` a new probe — [`src/engines/url-scanner.ts`](./src/engines/url-scanner.ts).
 
-## Tool reference
+Every new pattern/rule must ship with a test. The scanner must stay self-clean (`node dist/bin.js scan ./src` returns 0 findings).
 
-### `scan_for_secrets`
-
-| Field | Type | Description |
-|---|---|---|
-| `files` | `{ path, content }[]` | Inline files — preferred when the client already has the text. |
-| `paths` | `string[]` | Absolute filesystem paths to read and scan. |
-| `content` | `string` | A raw snippet with no file context. |
-| `context` | `"pre-commit" \| "on-save" \| "on-demand"` | Gates blocking behavior. |
-
-### `scan_auth_logic` · `scan_sqli`
-
-| Field | Type | Description |
-|---|---|---|
-| `code` | `string` | Source code to analyze. |
-| `language` | `string` | Language hint (e.g. `typescript`, `python`). |
-| `path` | `string` | Optional file path for context. |
-| `model` | `string` | Anthropic model ID; overridable via `SECUREMCP_AUTH_MODEL` / `SECUREMCP_SQL_MODEL` env. |
-
-### `scan_deps`
-
-| Field | Type | Description |
-|---|---|---|
-| `paths` | `string[]` | Paths to `package.json`, `requirements.txt`, `Pipfile.lock`. |
-| `manifests` | `{ path, content }[]` | Inline manifests. |
-
-### `fix_and_pr`
-
-| Field | Type | Description |
-|---|---|---|
-| `repo` | `string` | `owner/repo`. |
-| `filePath` | `string` | File to fix, relative to repo root. |
-| `finding` | `object` | A finding from any scanner. |
-| `fileContent` | `string` | Optional inline contents; otherwise fetched from GitHub. |
-| `dryRun` | `boolean` | Propose the fix without creating a branch/PR. |
-
-## Architecture
-
-```
-IDE (Cursor / Claude Code / VS Code)
-        │  JSON-RPC 2.0 over stdio
-        ▼
-Ironward server  (Node 20+, TypeScript)
-        │
-        ├─ scan_for_secrets   ← 270 patterns + entropy (offline, zero keys)
-        ├─ scan_code          ← 27 static-analysis rules (offline, zero keys)
-        ├─ scan_deps          ← manifest parsers + OSV.dev (offline, zero keys)
-        ├─ scan_url           ← HTTP audit + letter grade (offline, zero keys)
-        ├─ scan_auth_logic    ← Claude Opus + keyword pre-filter
-        ├─ scan_sqli          ← Claude Sonnet + 24-rule pre-filter
-        ├─ scan_xss           ← Claude Sonnet + 25-rule pre-filter
-        ├─ scan_idor          ← Claude Opus + 12-rule access-control pre-filter
-        └─ fix_and_pr         ← Opus + GitHub REST (branch + commit + PR)
-```
+---
 
 ## License
 
-MIT
+[MIT](./LICENSE) — free to use, fork, ship.
+
+---
+
+<p align="center">
+  <sub>Built by <a href="https://github.com/rayentr">@rayentr</a>.
+  <br>Star the repo if Ironward saved you from shipping a secret. ⭐</sub>
+</p>

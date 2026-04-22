@@ -46,6 +46,12 @@ Provider:
   ironward whoami                   show current provider + model
   ironward free                     list tools that work without any API key
 
+Autonomous:
+  ironward watch [dir]              re-scan files on save (Ctrl-C to stop)
+  ironward install-hooks            install a git pre-commit hook that blocks
+                                    commits with critical/high findings
+  ironward uninstall-hooks          remove the pre-commit hook
+
 Misc:
   ironward --version | -V           print version and exit
   ironward --help | -h              print this help
@@ -904,6 +910,18 @@ export async function runCli(argv: string[]): Promise<number> {
     case "free": {
       const { runFree } = await import("./commands/login.js");
       return await runFree();
+    }
+    case "watch": {
+      const { runWatch } = await import("./commands/watch.js");
+      return await runWatch({ root: rest[0], minConfidence: verbose ? 40 : 60 });
+    }
+    case "install-hooks": {
+      const { runInstallHooks } = await import("./commands/hooks.js");
+      return await runInstallHooks();
+    }
+    case "uninstall-hooks": {
+      const { runUninstallHooks } = await import("./commands/hooks.js");
+      return await runUninstallHooks();
     }
     default:
       console.error(`Unknown command: ${args[0]}`);

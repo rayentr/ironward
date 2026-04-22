@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/ironward"><img alt="npm" src="https://img.shields.io/npm/v/ironward?color=9af99a&label=npm"></a>
-  <a href="https://github.com/rayentr/ironward/actions"><img alt="tests" src="https://img.shields.io/badge/tests-263%2F263-9af99a"></a>
+  <a href="https://github.com/rayentr/ironward/actions"><img alt="tests" src="https://img.shields.io/badge/tests-272%2F272-9af99a"></a>
   <a href="./LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-9af99a"></a>
   <a href="https://www.npmjs.com/package/ironward"><img alt="downloads" src="https://img.shields.io/npm/dm/ironward?color=9af99a"></a>
 </p>
@@ -215,6 +215,29 @@ Misc
 Output format
   --format json                     machine-readable output for CI
   --format text                     (default)
+```
+
+---
+
+## Watch mode + git pre-commit hook
+
+**`ironward watch`** — file watcher that re-scans on every save. Ctrl-C to stop.
+
+```bash
+ironward watch ./src
+# 🛡  Ironward watching src — Ctrl-C to stop
+# 14:32:07  src/api/auth.ts
+#   [CRITICAL] L42  jwt-alg-none  conf=95
+```
+
+**`ironward install-hooks`** — installs a git pre-commit hook that blocks commits with critical/high findings. Respects `core.hooksPath` (husky, lefthook, …) and preserves existing hook content.
+
+```bash
+cd myproject
+ironward install-hooks
+# git commit now blocks on findings
+# bypass once: git commit --no-verify
+# remove entirely: ironward uninstall-hooks
 ```
 
 ---

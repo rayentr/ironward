@@ -173,5 +173,19 @@ test("MCP mode (no args) responds to initialize over stdio", async () => {
   assert.ok(lines.length >= 2, `expected >=2 responses, got ${lines.length}`);
   const listResp = JSON.parse(lines[lines.length - 1]) as { result: { tools: Array<{ name: string }> } };
   const names = listResp.result.tools.map((t) => t.name).sort();
-  assert.deepEqual(names, ["fix_and_pr", "scan_auth_logic", "scan_code", "scan_deps", "scan_for_secrets", "scan_idor", "scan_sqli", "scan_url", "scan_xss"]);
+  assert.deepEqual(names, [
+    "fix_and_pr",
+    "scan_auth_logic",
+    "scan_code",
+    "scan_deps",
+    "scan_docker",
+    "scan_for_secrets",
+    "scan_github",
+    "scan_idor",
+    "scan_infra",
+    "scan_k8s",
+    "scan_sqli",
+    "scan_url",
+    "scan_xss",
+  ]);
 });

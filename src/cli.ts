@@ -8,6 +8,10 @@ import { formatReport, runScanSecrets, type FileReport } from "./tools/scan-secr
 import { formatDepsReport, runScanDeps, parseManifest } from "./tools/scan-deps.js";
 import { runScanUrl, formatUrlReport } from "./tools/scan-url.js";
 import { runScanCode, formatCodeReport } from "./tools/scan-code.js";
+import { runScanDocker, formatDockerReport, detectKind as detectDockerKind } from "./tools/scan-docker.js";
+import { runScanK8s, formatK8sReport, detectK8s } from "./tools/scan-k8s.js";
+import { runScanGithub, formatGithubReport, detectGithubWorkflow } from "./tools/scan-github.js";
+import { runScanInfra, formatInfraReport, detectInfraKind } from "./tools/scan-infra.js";
 import { scanText } from "./engines/secret-engine.js";
 import { scanCodeRules, severityRank as codeSeverityRank } from "./engines/code-rules.js";
 import { record, fingerprintFor, isRecordingEnabled } from "./engines/recorder.js";
@@ -31,6 +35,10 @@ Scanning:
   ironward scan-code <path>...      static analysis: eval, SSRF, weak crypto, prototype pollution, …
   ironward scan-deps <path>...      scan package.json / requirements.txt / Pipfile.lock
   ironward scan-url <https-url>     audit a live deployed URL for misconfiguration
+  ironward scan-docker <path>...    Dockerfile + docker-compose security
+  ironward scan-k8s <path>...       Kubernetes manifest security
+  ironward scan-infra <path>...     Terraform + CloudFormation security
+  ironward scan-github <path>...    GitHub Actions workflow security
 
 Provider:
   ironward login                    pick AI provider (Anthropic, OpenAI, Gemini, Groq, Ollama)
@@ -612,14 +620,50 @@ async function runFullScanCli(targets: string[], format: OutputFormat = "text", 
   let worstExit = 0;
   const track = (code: number) => { if (code > worstExit) worstExit = code; };
 
+  // Detect which IaC/container/workflow scanners are worth running.
+  const detected = await detectIacScanners([target]);
+
   console.log("── scan-secrets ──");
   track(await runSecretsCli([target], "text", scope, opts));
   console.log("\n── scan-code ──");
   track(await runCodeCli([target], "text", scope));
   console.log("\n── scan-deps ──");
   track(await runDepsCli([target]));
+  if (detected.docker) {
+    console.log("\n── scan-docker ──");
+    track(await runDockerCli([target]));
+  }
+  if (detected.k8s) {
+    console.log("\n── scan-k8s ──");
+    track(await runK8sCli([target]));
+  }
+  if (detected.infra) {
+    console.log("\n── scan-infra ──");
+    track(await runInfraCli([target]));
+  }
+  if (detected.github) {
+    console.log("\n── scan-github ──");
+    track(await runGithubCli([target]));
+  }
   console.log(`\nDone in ${Date.now() - startedWhole}ms.`);
   return worstExit;
+}
+
+async function detectIacScanners(targets: string[]): Promise<{ docker: boolean; k8s: boolean; infra: boolean; github: boolean }> {
+  const out = { docker: false, k8s: false, infra: false, github: false };
+  const files = await collectFiles(targets);
+  for (const f of files) {
+    try {
+      // For detection, only read a small prefix to be fast.
+      const content = await readFile(f, "utf8").then((s) => s.slice(0, 4096));
+      if (!out.docker && detectDockerKind(f, content) !== null) out.docker = true;
+      if (!out.k8s && detectK8s(f, content)) out.k8s = true;
+      if (!out.infra && detectInfraKind(f, content) !== null) out.infra = true;
+      if (!out.github && detectGithubWorkflow(f, content)) out.github = true;
+      if (out.docker && out.k8s && out.infra && out.github) break;
+    } catch { /* skip */ }
+  }
+  return out;
 }
 
 async function collectSecretsResult(targets: string[]): Promise<{ exit: number; result: unknown }> {
@@ -684,6 +728,74 @@ async function collectDepsResult(targets: string[]): Promise<{ exit: number; res
     || out.intel.some((f) => f.severity === "critical" || f.severity === "high");
   const exit = out.findings.length === 0 && out.intel.length === 0 ? 0 : critHigh ? 2 : 1;
   return { exit, result: { tool: "scan_deps", ...out } };
+}
+
+async function runDockerCli(targets: string[], format: OutputFormat = "text"): Promise<number> {
+  if (targets.length === 0) targets = ["."];
+  const files = await collectFiles(targets);
+  const inputs: Array<{ path: string; content: string }> = [];
+  for (const f of files) {
+    try {
+      const content = await readFile(f, "utf8");
+      if (detectDockerKind(f, content) !== null) inputs.push({ path: relative(process.cwd(), f), content });
+    } catch { /* skip */ }
+  }
+  const out = await runScanDocker({ files: inputs });
+  if (format === "json") writeStdoutSync(JSON.stringify({ tool: "scan_docker", ...out }) + "\n");
+  else console.log(formatDockerReport(out));
+  if (out.summary.totalFindings === 0) return 0;
+  return out.summary.bySeverity.critical > 0 || out.summary.bySeverity.high > 0 ? 2 : 1;
+}
+
+async function runK8sCli(targets: string[], format: OutputFormat = "text"): Promise<number> {
+  if (targets.length === 0) targets = ["."];
+  const files = await collectFiles(targets);
+  const inputs: Array<{ path: string; content: string }> = [];
+  for (const f of files) {
+    try {
+      const content = await readFile(f, "utf8");
+      if (detectK8s(f, content)) inputs.push({ path: relative(process.cwd(), f), content });
+    } catch { /* skip */ }
+  }
+  const out = await runScanK8s({ files: inputs });
+  if (format === "json") writeStdoutSync(JSON.stringify({ tool: "scan_k8s", ...out }) + "\n");
+  else console.log(formatK8sReport(out));
+  if (out.summary.totalFindings === 0) return 0;
+  return out.summary.bySeverity.critical > 0 || out.summary.bySeverity.high > 0 ? 2 : 1;
+}
+
+async function runGithubCli(targets: string[], format: OutputFormat = "text"): Promise<number> {
+  if (targets.length === 0) targets = ["."];
+  const files = await collectFiles(targets);
+  const inputs: Array<{ path: string; content: string }> = [];
+  for (const f of files) {
+    try {
+      const content = await readFile(f, "utf8");
+      if (detectGithubWorkflow(f, content)) inputs.push({ path: relative(process.cwd(), f), content });
+    } catch { /* skip */ }
+  }
+  const out = await runScanGithub({ files: inputs });
+  if (format === "json") writeStdoutSync(JSON.stringify({ tool: "scan_github", ...out }) + "\n");
+  else console.log(formatGithubReport(out));
+  if (out.summary.totalFindings === 0) return 0;
+  return out.summary.bySeverity.critical > 0 || out.summary.bySeverity.high > 0 ? 2 : 1;
+}
+
+async function runInfraCli(targets: string[], format: OutputFormat = "text"): Promise<number> {
+  if (targets.length === 0) targets = ["."];
+  const files = await collectFiles(targets);
+  const inputs: Array<{ path: string; content: string }> = [];
+  for (const f of files) {
+    try {
+      const content = await readFile(f, "utf8");
+      if (detectInfraKind(f, content) !== null) inputs.push({ path: relative(process.cwd(), f), content });
+    } catch { /* skip */ }
+  }
+  const out = await runScanInfra({ files: inputs });
+  if (format === "json") writeStdoutSync(JSON.stringify({ tool: "scan_infra", ...out }) + "\n");
+  else console.log(formatInfraReport(out));
+  if (out.summary.totalFindings === 0) return 0;
+  return out.summary.bySeverity.critical > 0 || out.summary.bySeverity.high > 0 ? 2 : 1;
 }
 
 async function runDepsCli(targets: string[], format: OutputFormat = "text"): Promise<number> {
@@ -769,6 +881,14 @@ export async function runCli(argv: string[]): Promise<number> {
       return await runDepsCli(rest, format);
     case "scan-url":
       return await runUrlCli(rest, format);
+    case "scan-docker":
+      return await runDockerCli(rest, format);
+    case "scan-k8s":
+      return await runK8sCli(rest, format);
+    case "scan-github":
+      return await runGithubCli(rest, format);
+    case "scan-infra":
+      return await runInfraCli(rest, format);
     case "login": {
       const { runLogin } = await import("./commands/login.js");
       return await runLogin();

@@ -9,13 +9,17 @@ import { runScanIdor, formatIdorReport, DEFAULT_IDOR_MODEL } from "./tools/scan-
 import { runScanUrl, formatUrlReport } from "./tools/scan-url.js";
 import { runScanCode, formatCodeReport } from "./tools/scan-code.js";
 import { runScanDeps, formatDepsReport } from "./tools/scan-deps.js";
+import { runScanDocker, formatDockerReport } from "./tools/scan-docker.js";
+import { runScanK8s, formatK8sReport } from "./tools/scan-k8s.js";
+import { runScanGithub, formatGithubReport } from "./tools/scan-github.js";
+import { runScanInfra, formatInfraReport } from "./tools/scan-infra.js";
 import { runFixAndPr, formatFixReport, DEFAULT_FIX_MODEL } from "./tools/fix-and-pr.js";
 import { defaultValidator } from "./engines/fix-validator.js";
 import { MissingApiKeyError } from "./engines/claude-client.js";
 import { MissingGitHubTokenError } from "./engines/github-client.js";
 
 const server = new McpServer(
-  { name: "ironward", version: "1.3.0" },
+  { name: "ironward", version: "1.4.0" },
   { capabilities: { tools: {} } },
 );
 
@@ -423,6 +427,111 @@ server.registerTool(
         isError: true,
       };
     }
+  },
+);
+
+// ──────────────────────────────────────────────────────────────
+// v1.4.0: Infrastructure / container / workflow scanners (offline).
+// ──────────────────────────────────────────────────────────────
+
+const fileBundleShape = {
+  files: z
+    .array(z.object({ path: z.string(), content: z.string() }))
+    .optional()
+    .describe("Files to scan with inline content."),
+  paths: z
+    .array(z.string())
+    .optional()
+    .describe("Absolute filesystem paths to read and scan."),
+};
+
+server.registerTool(
+  "scan_docker",
+  {
+    title: "Scan Dockerfile + docker-compose (offline)",
+    description:
+      "Static analysis for Dockerfile and docker-compose security: root user, privileged mode, " +
+      "sensitive host mounts, host networking, hardcoded secrets in ENV/ARG, unpinned :latest " +
+      "base images, COPY . ., curl | sh patterns, exposed SSH/DB ports, and more.",
+    inputSchema: fileBundleShape,
+  },
+  async (args) => {
+    const result = await runScanDocker(args);
+    return {
+      content: [
+        { type: "text", text: formatDockerReport(result) },
+        { type: "text", text: "```json\n" + JSON.stringify(result, null, 2) + "\n```" },
+      ],
+      isError: false,
+    };
+  },
+);
+
+server.registerTool(
+  "scan_k8s",
+  {
+    title: "Scan Kubernetes manifests (offline)",
+    description:
+      "Static analysis for Kubernetes YAML: privileged containers, hostNetwork/hostPID/hostIPC, " +
+      "dangerous capabilities (SYS_ADMIN, NET_ADMIN, ALL), missing resource limits, :latest images, " +
+      "secrets in env literals vs secretKeyRef, default service accounts, automount tokens.",
+    inputSchema: fileBundleShape,
+  },
+  async (args) => {
+    const result = await runScanK8s(args);
+    return {
+      content: [
+        { type: "text", text: formatK8sReport(result) },
+        { type: "text", text: "```json\n" + JSON.stringify(result, null, 2) + "\n```" },
+      ],
+      isError: false,
+    };
+  },
+);
+
+server.registerTool(
+  "scan_infra",
+  {
+    title: "Scan Terraform + CloudFormation (offline)",
+    description:
+      "Static analysis for infrastructure-as-code: AWS (public S3, 0.0.0.0/0 security groups, " +
+      "publicly-accessible RDS, IAM * policies, unencrypted EBS), GCP (allUsers GCS ACL, open " +
+      "firewall, GKE legacy auth), Azure (public storage, open NSGs, public SQL, Key Vault " +
+      "soft-delete), and generic hardcoded credentials.",
+    inputSchema: fileBundleShape,
+  },
+  async (args) => {
+    const result = await runScanInfra(args);
+    return {
+      content: [
+        { type: "text", text: formatInfraReport(result) },
+        { type: "text", text: "```json\n" + JSON.stringify(result, null, 2) + "\n```" },
+      ],
+      isError: false,
+    };
+  },
+);
+
+server.registerTool(
+  "scan_github",
+  {
+    title: "Scan GitHub Actions workflows (offline)",
+    description:
+      "Static analysis for .github/workflows/*.yml: pull_request_target + checkout (PR arbitrary " +
+      "code execution), expression injection in run: steps via ${{ github.event.* }}, secrets in " +
+      "if: conditions (always truthy), over-broad permissions: write-all, unpinned action versions, " +
+      "artifact uploads that leak .env / SSH keys, self-hosted runners.",
+    inputSchema: fileBundleShape,
+  },
+  async (args) => {
+    const result = await runScanGithub(args);
+    return {
+      content: [
+        { type: "text", text: formatGithubReport(result) },
+        { type: "text", text: "```json\n" + JSON.stringify(result, null, 2) + "\n```" },
+      ],
+      isError: false,
+    };
   },
 );
 

@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  web:
+    image: nginx:latest
+    privileged: true
+    network_mode: host
+    environment:
+      - DATABASE_URL=postgresql://admin:realpass123abc@db:5432/app
+      - STRIPE_SECRET_KEY=sk_live_abcdefghijklmnopqrstuvwx
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "/etc:/host-etc"
+    ports:
+      - "80:80"

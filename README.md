@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/ironward"><img alt="npm" src="https://img.shields.io/npm/v/ironward?color=9af99a&label=npm"></a>
-  <a href="https://github.com/rayentr/ironward/actions"><img alt="tests" src="https://img.shields.io/badge/tests-210%2F210-9af99a"></a>
+  <a href="https://github.com/rayentr/ironward/actions"><img alt="tests" src="https://img.shields.io/badge/tests-263%2F263-9af99a"></a>
   <a href="./LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-9af99a"></a>
   <a href="https://www.npmjs.com/package/ironward"><img alt="downloads" src="https://img.shields.io/npm/dm/ironward?color=9af99a"></a>
 </p>
@@ -35,14 +35,18 @@ ironward scan ./src
 
 ---
 
-## The 9 tools
+## The 13 tools
 
 | Tool | Runtime | What it finds |
 |------|---------|---------------|
 | `scan_for_secrets` | **Offline** | 665 pattern families — AWS, GCP, Azure, Stripe, PayPal, GitHub, OpenAI, Anthropic, Supabase, PlanetScale, Ethereum/Solana wallets, Firebase, + Shannon entropy |
-| `scan_code` | **Offline** | 61 static rules — `eval`, command injection, path traversal, weak crypto (MD5/SHA-1/DES/ECB/short-RSA), SSRF, XXE, NoSQL/LDAP injection, prototype pollution, JWT `alg:none`, template injection, timing-unsafe comparisons, Python-specific (pickle, yaml.load, subprocess shell=True), Django/Flask debug=True |
-| `scan_deps` | **Offline** | OSV.dev CVE lookup + typosquat detection + known-malware list + abandoned packages + license compliance (copyleft/unlicensed) |
-| `scan_url` | **Offline** | Letter-graded web scan — headers, CORS, cookies, exposed `.env` / `.git`, source maps, admin panels, API docs, Supabase/Firebase keys in HTML, TLS expiry |
+| `scan_code` | **Offline** | 61 static rules — `eval`, command injection, path traversal, weak crypto, SSRF, XXE, NoSQL/LDAP injection, template injection, timing-unsafe comparisons, Python-specific (pickle, yaml.load, subprocess shell=True) |
+| `scan_deps` | **Offline** | OSV.dev CVE lookup + typosquat detection + known-malware list + abandoned packages + license compliance |
+| `scan_url` | **Offline** | Letter-graded web scan — headers, CORS, cookies, exposed `.env` / `.git`, source maps, admin panels, API docs, Supabase/Firebase keys, TLS expiry |
+| `scan_docker` | **Offline** | Dockerfile + docker-compose — root user, `privileged:true`, sensitive host mounts, secrets in ENV/ARG, `:latest` tags, `curl \| sh`, exposed SSH/DB ports |
+| `scan_k8s` | **Offline** | Kubernetes manifests — privileged containers, `hostNetwork`, dangerous capabilities (SYS_ADMIN, ALL), missing resource limits, secrets in env literals, default service accounts |
+| `scan_infra` | **Offline** | Terraform + CloudFormation — public S3, 0.0.0.0/0 security groups, publicly-accessible RDS, IAM `*` policies, unencrypted EBS, GCP allUsers ACLs, Azure open NSGs |
+| `scan_github` | **Offline** | GitHub Actions — `pull_request_target` + checkout (PR arbitrary-code-execution), expression injection via `${{ github.event.* }}` in `run:`, unpinned action versions, write-all permissions, artifact leaks |
 | `scan_auth_logic` | AI | Backwards auth checks, missing ownership, privilege escalation, bypassable middleware, JWT `alg:none` acceptance, session fixation |
 | `scan_sqli` | AI | SQL injection across JS/TS, Python, Go, Ruby, PHP, Java — string concat, template literals, ORM `raw` / `$queryRawUnsafe` |
 | `scan_xss` | AI | DOM + server-side XSS — `innerHTML`, `dangerouslySetInnerHTML`, Vue `v-html`, Svelte `{@html}`, EJS unescaped, reflected Express/Koa responses |
@@ -190,11 +194,15 @@ Full configuration and outputs in [github-action/README.md](./github-action/READ
 
 ```
 Scanning
-  ironward scan <path>              run every offline scanner (recommended)
+  ironward scan <path>              run every offline scanner (auto-detects IaC files)
   ironward scan-secrets <path>...   665 pattern families
-  ironward scan-code <path>...      27 static analysis rules
+  ironward scan-code <path>...      61 static analysis rules
   ironward scan-deps <path>...      OSV CVE + typosquat / malware / license
   ironward scan-url <https-url>     security headers, TLS, exposed files
+  ironward scan-docker <path>...    Dockerfile + docker-compose
+  ironward scan-k8s <path>...       Kubernetes manifests
+  ironward scan-infra <path>...     Terraform + CloudFormation
+  ironward scan-github <path>...    GitHub Actions workflows
 
 Provider
   ironward login                    pick AI provider (interactive)

@@ -187,7 +187,7 @@ export async function runLogin(): Promise<number> {
     console.log(`\nSaved to ${configPath()} (chmod 600).`);
     console.log(`Provider: ${provider.name}`);
     console.log(`Model:    ${cfg.model}`);
-    console.log("\nAll 9 tools are now available. Run `ironward whoami` to confirm.");
+    console.log("\nAll 13 tools are now available. Run `ironward whoami` to confirm.");
     return 0;
   } finally {
     rl.close();

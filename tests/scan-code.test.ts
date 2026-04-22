@@ -110,3 +110,138 @@ test("path.join with request input is flagged", () => {
   const f = scanCodeRules(code);
   assert.ok(f.some((x) => x.ruleId === "path-join-user-input"));
 });
+
+// ---------------------------------------------------------------------------
+// v1.3.0: new rules — injection, crypto, auth, python, info leaks
+// ---------------------------------------------------------------------------
+
+test("flags NoSQL injection, LDAP, XXE, header/log injection", async () => {
+  const f = await scanFixture("code/injection_extras.js");
+  const ids = new Set(f.map((x) => x.ruleId));
+  assert.ok(ids.has("nosql-mongo-where"), `missing nosql-mongo-where: ${[...ids].join(",")}`);
+  assert.ok(ids.has("nosql-mongo-mapreduce"), `missing nosql-mongo-mapreduce: ${[...ids].join(",")}`);
+  assert.ok(ids.has("ldap-filter-user-input"), `missing ldap-filter-user-input: ${[...ids].join(",")}`);
+  assert.ok(ids.has("xxe-xml-parser"), `missing xxe-xml-parser: ${[...ids].join(",")}`);
+  assert.ok(ids.has("header-injection-crlf"), `missing header-injection-crlf: ${[...ids].join(",")}`);
+  assert.ok(ids.has("log-injection-user-input"), `missing log-injection-user-input: ${[...ids].join(",")}`);
+});
+
+test("flags Handlebars and Pug template injection", async () => {
+  const f = await scanFixture("code/templates.js");
+  const ids = new Set(f.map((x) => x.ruleId));
+  assert.ok(ids.has("template-handlebars-compile-user"));
+  assert.ok(ids.has("template-pug-user-input"));
+});
+
+test("flags Python-specific rules (pickle, yaml, subprocess, assert, flask debug, exec, jinja)", async () => {
+  const f = await scanFixture("code/templates.py");
+  const ids = new Set(f.map((x) => x.ruleId));
+  assert.ok(ids.has("template-jinja-render-string"), `missing jinja: ${[...ids].join(",")}`);
+  assert.ok(ids.has("py-pickle-loads-untrusted"), `missing pickle: ${[...ids].join(",")}`);
+  assert.ok(ids.has("py-yaml-load-unsafe"), `missing yaml: ${[...ids].join(",")}`);
+  assert.ok(ids.has("py-subprocess-shell-true"), `missing subprocess: ${[...ids].join(",")}`);
+  assert.ok(ids.has("py-assert-security-check"), `missing assert: ${[...ids].join(",")}`);
+  assert.ok(ids.has("py-flask-debug-true"), `missing flask debug: ${[...ids].join(",")}`);
+  assert.ok(ids.has("py-exec-call"), `missing py-exec: ${[...ids].join(",")}`);
+});
+
+test("flags Django DEBUG=True in settings", async () => {
+  const f = await scanFixture("code/django_settings.py");
+  const ids = new Set(f.map((x) => x.ruleId));
+  assert.ok(ids.has("py-django-debug-true"));
+});
+
+test("flags extra crypto rules (hardcoded IV, ECB, RSA padding, short keys, bcrypt/scrypt)", async () => {
+  const f = await scanFixture("code/crypto_extras.js");
+  const ids = new Set(f.map((x) => x.ruleId));
+  assert.ok(ids.has("crypto-hardcoded-iv"), `missing hardcoded-iv: ${[...ids].join(",")}`);
+  assert.ok(ids.has("crypto-ecb-mode"), `missing ecb: ${[...ids].join(",")}`);
+  assert.ok(ids.has("crypto-rsa-without-oaep"), `missing rsa-padding: ${[...ids].join(",")}`);
+  assert.ok(ids.has("crypto-short-rsa-key"), `missing short-rsa: ${[...ids].join(",")}`);
+  assert.ok(ids.has("crypto-short-aes-key"), `missing short-aes: ${[...ids].join(",")}`);
+  assert.ok(ids.has("bcrypt-short-salt-rounds"), `missing bcrypt-rounds: ${[...ids].join(",")}`);
+  assert.ok(ids.has("scrypt-low-n"), `missing scrypt-n: ${[...ids].join(",")}`);
+});
+
+test("flags authentication rules (jwt.decode, cookie samesite, password-in-url, basic-auth, timing)", async () => {
+  const f = await scanFixture("code/auth_extras.js");
+  const ids = new Set(f.map((x) => x.ruleId));
+  assert.ok(ids.has("jwt-decode-not-verify"), `missing jwt-decode: ${[...ids].join(",")}`);
+  assert.ok(ids.has("cookie-no-samesite"), `missing cookie-samesite: ${[...ids].join(",")}`);
+  assert.ok(ids.has("password-in-url-query"), `missing pw-in-url: ${[...ids].join(",")}`);
+  assert.ok(ids.has("basic-auth-over-http"), `missing basic-auth: ${[...ids].join(",")}`);
+  assert.ok(ids.has("timing-unsafe-comparison"), `missing timing-unsafe: ${[...ids].join(",")}`);
+  assert.ok(ids.has("hmac-no-timing-safe"), `missing hmac-timing: ${[...ids].join(",")}`);
+});
+
+test("flags Node-specific rules (exec template, require user-input, fs write user-path)", async () => {
+  const f = await scanFixture("code/node_extras.js");
+  const ids = new Set(f.map((x) => x.ruleId));
+  assert.ok(ids.has("child-process-exec-template"), `missing exec-template: ${[...ids].join(",")}`);
+  assert.ok(ids.has("require-user-input"), `missing require-user: ${[...ids].join(",")}`);
+  assert.ok(ids.has("fs-write-user-path"), `missing fs-write: ${[...ids].join(",")}`);
+});
+
+test("flags info leaks (source-map reference, stack trace in response)", async () => {
+  const f = await scanFixture("code/info_leaks.js");
+  const ids = new Set(f.map((x) => x.ruleId));
+  assert.ok(ids.has("source-map-reference-in-prod"), `missing sourcemap: ${[...ids].join(",")}`);
+  assert.ok(ids.has("stack-trace-in-response"), `missing stack-trace: ${[...ids].join(",")}`);
+});
+
+test("safe cookie with sameSite is NOT flagged", () => {
+  const code = `res.cookie("s", id, { httpOnly: true, sameSite: "lax", secure: true });`;
+  const f = scanCodeRules(code);
+  assert.ok(!f.some((x) => x.ruleId === "cookie-no-samesite"));
+});
+
+test("jwt.verify is NOT flagged as jwt.decode", () => {
+  const code = `const p = jwt.verify(token, secret, { algorithms: ["HS256"] });`;
+  const f = scanCodeRules(code);
+  assert.ok(!f.some((x) => x.ruleId === "jwt-decode-not-verify"));
+});
+
+test("yaml.safe_load is NOT flagged", () => {
+  const code = `data = yaml.safe_load(content)`;
+  const f = scanCodeRules(code);
+  assert.ok(!f.some((x) => x.ruleId === "py-yaml-load-unsafe"));
+});
+
+test("yaml.load with SafeLoader is NOT flagged", () => {
+  const code = `data = yaml.load(content, Loader=yaml.SafeLoader)`;
+  const f = scanCodeRules(code);
+  assert.ok(!f.some((x) => x.ruleId === "py-yaml-load-unsafe"));
+});
+
+test("subprocess.run without shell=True is NOT flagged", () => {
+  const code = `subprocess.run(["git", "status"])`;
+  const f = scanCodeRules(code);
+  assert.ok(!f.some((x) => x.ruleId === "py-subprocess-shell-true"));
+});
+
+test("rule.re.exec method call is NOT flagged as py-exec-call", () => {
+  const code = `while ((m = rule.re.exec(content)) !== null) { /* ... */ }`;
+  const f = scanCodeRules(code);
+  assert.ok(!f.some((x) => x.ruleId === "py-exec-call"));
+});
+
+test("all new categories resolve to a defined rule", () => {
+  // Sanity check: confirm the new categories have at least one rule.
+  // Ensures the union expansion is backed by real rules.
+  const code = `
+    $where: req.body.q;
+    new DOMParser();
+    render_template_string(request.args);
+    res.setHeader("X", req.query.v);
+    password === req.body.pw;
+    pickle.loads(request.data);
+  `;
+  const f = scanCodeRules(code);
+  const categories = new Set(f.map((x) => x.category));
+  assert.ok(categories.has("nosql"));
+  assert.ok(categories.has("xxe"));
+  assert.ok(categories.has("template-injection"));
+  assert.ok(categories.has("header-injection"));
+  assert.ok(categories.has("timing-attack"));
+  assert.ok(categories.has("python"));
+});

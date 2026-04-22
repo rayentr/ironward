@@ -61,7 +61,8 @@ test("unknown command exits 2 with helpful stderr", async () => {
 
 test("scan-secrets on leaky fixture finds criticals and exits 2", async () => {
   const fixture = join(here, "fixtures", "leaky.js");
-  const { code, stdout } = await run(["scan-secrets", fixture]);
+  // --verbose needed because fixture paths are penalized by confidence scoring.
+  const { code, stdout } = await run(["scan-secrets", "--verbose", fixture]);
   assert.equal(code, 2);
   assert.match(stdout, /CRITICAL/);
   assert.match(stdout, /aws_access_key/);
@@ -82,7 +83,7 @@ test("scan-secrets with no paths exits 2 with error", async () => {
 
 test("scan-secrets traverses a directory and skips node_modules", async () => {
   const dir = join(here, "fixtures", "categories");
-  const { code, stdout } = await run(["scan-secrets", dir]);
+  const { code, stdout } = await run(["scan-secrets", "--verbose", dir]);
   // The category fixtures contain critical patterns → exit 2
   assert.equal(code, 2);
   assert.match(stdout, /Scanned \d+ files? in \d+ms/);
@@ -90,7 +91,7 @@ test("scan-secrets traverses a directory and skips node_modules", async () => {
 
 test("scan-secrets --format json emits a single JSON object on stdout", async () => {
   const fixture = join(here, "fixtures", "leaky.js");
-  const { code, stdout } = await run(["scan-secrets", "--format", "json", fixture]);
+  const { code, stdout } = await run(["scan-secrets", "--verbose", "--format", "json", fixture]);
   assert.equal(code, 2);
   const trimmed = stdout.trim();
   const parsed = JSON.parse(trimmed) as { tool: string; files: Array<{ findings: unknown[] }> };
@@ -100,7 +101,8 @@ test("scan-secrets --format json emits a single JSON object on stdout", async ()
 });
 
 test("scan --format json emits a combined object with secrets + code + deps", async () => {
-  const dir = join(here, "fixtures");
+  // Use the categories subdir — no manifests, so scan-deps is fast (no OSV network calls).
+  const dir = join(here, "fixtures", "categories");
   const { stdout } = await run(["scan", "--format", "json", dir], { timeoutMs: 20000 });
   const trimmed = stdout.trim();
   const parsed = JSON.parse(trimmed) as Record<string, unknown>;

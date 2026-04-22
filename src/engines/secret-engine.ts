@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { scoreConfidence, confidenceTier, type ConfidenceTier } from "./confidence.js";
 
 export type Severity = "critical" | "high" | "medium" | "low";
 
@@ -24,6 +25,10 @@ export interface Finding {
   redacted: string;
   source: "pattern" | "entropy";
   fix: string;
+  confidence: number;           // 0-100
+  confidenceTier: ConfidenceTier;
+  confidenceReasons?: string[];
+  duplicates?: Array<{ path: string; line: number; column: number }>;
 }
 
 type CompiledPattern = {
@@ -192,10 +197,11 @@ function lineHasIgnoreDirective(content: string, line: number): boolean {
   return false;
 }
 
-export async function scanText(content: string, _filename = "<input>"): Promise<Finding[]> {
+export async function scanText(content: string, filename = "<input>"): Promise<Finding[]> {
   const patterns = await loadPatterns();
   const findings: Finding[] = [];
   const seenAt = new Map<number, Set<string>>();
+  const lines = content.split("\n");
 
   const markSeen = (line: number, type: string) => {
     let s = seenAt.get(line);
@@ -216,6 +222,14 @@ export async function scanText(content: string, _filename = "<input>"): Promise<
       if (def.minEntropy !== undefined && shannonEntropy(match) < def.minEntropy) continue;
       const { line, column } = lineColFromIndex(content, m.index);
       if (lineHasIgnoreDirective(content, line)) continue;
+      const conf = scoreConfidence({
+        match,
+        line: lines[line - 1] ?? "",
+        prevLine: lines[line - 2],
+        path: filename,
+        source: "pattern",
+        severity: def.severity,
+      });
       findings.push({
         type: name,
         category: def.category,
@@ -227,6 +241,9 @@ export async function scanText(content: string, _filename = "<input>"): Promise<
         redacted: redact(match),
         source: "pattern",
         fix: fixSuggestion(name, def.category),
+        confidence: conf.score,
+        confidenceTier: confidenceTier(conf.score),
+        confidenceReasons: conf.reasons,
       });
       markSeen(line, name);
     }
@@ -251,6 +268,15 @@ export async function scanText(content: string, _filename = "<input>"): Promise<
     if (seenAt.has(line) && seenAt.get(line)!.size > 0) continue;
     if (lineHasIgnoreDirective(content, line)) continue;
 
+    const conf = scoreConfidence({
+      match: literal,
+      line: lines[line - 1] ?? "",
+      prevLine: lines[line - 2],
+      path: filename,
+      source: "entropy",
+      entropy: h,
+      severity: "medium",
+    });
     findings.push({
       type: "high_entropy_string",
       category: "heuristic",
@@ -262,6 +288,9 @@ export async function scanText(content: string, _filename = "<input>"): Promise<
       redacted: redact(literal),
       source: "entropy",
       fix: "If this is a secret, move it to an environment variable. If it is not, add `// ironward-ignore` to suppress.",
+      confidence: conf.score,
+      confidenceTier: confidenceTier(conf.score),
+      confidenceReasons: conf.reasons,
     });
     markSeen(line, "high_entropy_string");
   }

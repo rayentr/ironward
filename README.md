@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/ironward"><img alt="npm" src="https://img.shields.io/npm/v/ironward?color=9af99a&label=npm"></a>
-  <a href="https://github.com/rayentr/ironward/actions"><img alt="tests" src="https://img.shields.io/badge/tests-166%2F166-9af99a"></a>
+  <a href="https://github.com/rayentr/ironward/actions"><img alt="tests" src="https://img.shields.io/badge/tests-210%2F210-9af99a"></a>
   <a href="./LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-9af99a"></a>
   <a href="https://www.npmjs.com/package/ironward"><img alt="downloads" src="https://img.shields.io/npm/dm/ironward?color=9af99a"></a>
 </p>
@@ -40,7 +40,7 @@ ironward scan ./src
 | Tool | Runtime | What it finds |
 |------|---------|---------------|
 | `scan_for_secrets` | **Offline** | 665 pattern families — AWS, GCP, Azure, Stripe, PayPal, GitHub, OpenAI, Anthropic, Supabase, PlanetScale, Ethereum/Solana wallets, Firebase, + Shannon entropy |
-| `scan_code` | **Offline** | 27 static rules — `eval`, command injection, path traversal, weak crypto (MD5/SHA-1/DES), SSRF, prototype pollution, JWT `alg:none`, CORS wildcard, logged secrets |
+| `scan_code` | **Offline** | 61 static rules — `eval`, command injection, path traversal, weak crypto (MD5/SHA-1/DES/ECB/short-RSA), SSRF, XXE, NoSQL/LDAP injection, prototype pollution, JWT `alg:none`, template injection, timing-unsafe comparisons, Python-specific (pickle, yaml.load, subprocess shell=True), Django/Flask debug=True |
 | `scan_deps` | **Offline** | OSV.dev CVE lookup + typosquat detection + known-malware list + abandoned packages + license compliance (copyleft/unlicensed) |
 | `scan_url` | **Offline** | Letter-graded web scan — headers, CORS, cookies, exposed `.env` / `.git`, source maps, admin panels, API docs, Supabase/Firebase keys in HTML, TLS expiry |
 | `scan_auth_logic` | AI | Backwards auth checks, missing ownership, privilege escalation, bypassable middleware, JWT `alg:none` acceptance, session fixation |

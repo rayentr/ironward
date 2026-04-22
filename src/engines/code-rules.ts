@@ -16,7 +16,14 @@ export interface CodeRule {
     | "cors"
     | "jwt"
     | "rate-limit"
-    | "framework";
+    | "framework"
+    | "nosql"
+    | "xxe"
+    | "template-injection"
+    | "header-injection"
+    | "timing-attack"
+    | "python"
+    | "path-traversal";
   title: string;
   re: RegExp;
   rationale: string;
@@ -292,6 +299,345 @@ export const CODE_RULES: CodeRule[] = [
     re: /(?:JWT|jwt)[_-]?(?:secret|key)\s*=\s*(?:Math\.random|Date\.now)\s*\(/g,
     rationale: "Predictable signing secrets defeat JWT entirely.",
     fix: "Generate the secret once with openssl rand -base64 64 and read it from env.",
+  },
+
+  // --- Injection: NoSQL ---
+  {
+    id: "nosql-mongo-where",
+    severity: "high",
+    category: "nosql",
+    title: "MongoDB $where operator fed with request input",
+    re: new RegExp(
+      `\\$where\\s*:\\s*(?=[\\s\\S]{0,100}?${REQ})`,
+      "g",
+    ),
+    rationale: "Mongo's $where runs arbitrary JavaScript on the server. User input here is code injection.",
+    fix: "Replace $where with field operators ($eq, $in, $regex with anchors). Validate inputs with a schema.",
+  },
+  {
+    id: "nosql-mongo-mapreduce",
+    severity: "medium",
+    category: "nosql",
+    title: "MongoDB mapReduce with request input",
+    re: new RegExp(
+      `\\.\\s*mapReduce\\s*\\((?=[\\s\\S]{0,150}?${REQ})`,
+      "g",
+    ),
+    rationale: "mapReduce runs JS on the server. Attacker-controlled map/reduce functions can exfiltrate data or escape sandboxes.",
+    fix: "Use aggregation pipelines ($group, $project) with typed operators instead of mapReduce over user strings.",
+  },
+
+  // --- Injection: LDAP ---
+  {
+    id: "ldap-filter-user-input",
+    severity: "high",
+    category: "framework",
+    title: "LDAP search filter built from request input",
+    re: new RegExp(
+      "\\b(?:ldapsearch|ldap\\s*\\.\\s*search|LdapClient\\s*\\.\\s*search|ldapClient\\s*\\.\\s*search)\\s*\\(" +
+        `(?=[\\s\\S]{0,200}?\`[^\`]*\\$\\{[^}]*${REQ})`,
+      "g",
+    ),
+    rationale: "Interpolating user input into an LDAP filter lets attackers change the filter semantics (e.g. (uid=*)(|(password=*))).",
+    fix: "Escape each value with an LDAP-safe escaper (ldapEscape) and assemble the filter from static parts.",
+  },
+
+  // --- Injection: XXE ---
+  {
+    id: "xxe-xml-parser",
+    severity: "medium",
+    category: "xxe",
+    title: "XML parser instantiated without explicit DTD/entity disable",
+    re: /\bnew\s+DOMParser\s*\(\s*\)|\blibxmljs\s*\.\s*parseXml(?:String)?\s*\(|\bxml2js\s*(?:\.\s*\w+)?\s*\.\s*parseString\s*\(/g,
+    rationale: "Default XML parsers resolve external entities and DTDs — classic XXE lets attackers read local files or SSRF internal hosts.",
+    fix: "Pass options that disable DTD/entity expansion (libxmljs: noent:false, noblanks:true, nonet:true; xml2js: explicitDtd:false; or use a DOM parser safer-by-default like fast-xml-parser).",
+  },
+
+  // --- Injection: Template ---
+  {
+    id: "template-jinja-render-string",
+    severity: "high",
+    category: "template-injection",
+    title: "Flask render_template_string with request input",
+    re: /\brender_template_string\s*\([^)]*(?:flask\.request|request)\s*\.\s*(?:args|form|values|json|data)/g,
+    rationale: "render_template_string compiles the string as a Jinja template — user input becomes SSTI and leads to RCE on Flask.",
+    fix: "Use render_template() with a file-backed template, or pass user values as template variables (not the template body).",
+  },
+  {
+    id: "template-handlebars-compile-user",
+    severity: "high",
+    category: "template-injection",
+    title: "Handlebars.compile() with request input",
+    re: /\bHandlebars\s*\.\s*compile\s*\([^)]*\breq(?:uest)?\s*\.\s*(?:body|params|query|headers)/g,
+    rationale: "Handlebars.compile on a user-controlled template is SSTI. Even without helpers, attackers can leak context variables.",
+    fix: "Precompile templates at build time. Treat user input as data passed INTO a compiled template, never as the template source.",
+  },
+  {
+    id: "template-pug-user-input",
+    severity: "high",
+    category: "template-injection",
+    title: "pug.compile / pug.render with request input",
+    re: /\bpug\s*\.\s*(?:compile|render)\s*\([^)]*\breq(?:uest)?\s*\.\s*(?:body|params|query|headers)/g,
+    rationale: "Pug template source from user input allows arbitrary JS execution on the server via template features.",
+    fix: "Load template source from disk only; pass user data via the locals object on render.",
+  },
+
+  // --- Injection: Header / Log ---
+  {
+    id: "header-injection-crlf",
+    severity: "medium",
+    category: "header-injection",
+    title: "res.setHeader / writeHead value from unsanitized request input",
+    re: /\bres\s*\.\s*(?:setHeader|writeHead)\s*\([^,)]+,\s*(?:req|request|ctx)\s*\.\s*(?:body|params|query|headers)\s*\.[A-Za-z_$][\w]*/g,
+    rationale: "Unescaped CR/LF in a header value splits the response — attacker injects cookies, cache-poisoning hints, or a fake second response.",
+    fix: "Validate the value (/^[\\w .,/:=+-]+$/ or allowlist) and reject newlines/carriage returns before calling setHeader.",
+  },
+  {
+    id: "log-injection-user-input",
+    severity: "medium",
+    category: "logging",
+    title: "User input concatenated into log message (log injection)",
+    re: /\b(?:console\s*\.\s*(?:log|info|error|warn|debug)|logger\s*\.\s*(?:log|info|error|warn|debug))\s*\([^)]*\+\s*(?:req|request)\s*\.\s*(?:body|params|query|headers)/g,
+    rationale: "Unescaped newlines from user input forge fake log entries — attackers plant misleading records or break log parsers.",
+    fix: "Pass user fields as structured fields (logger.info({userId}, 'msg')) or sanitize \\r\\n before concatenating.",
+  },
+
+  // --- Cryptography ---
+  {
+    id: "crypto-hardcoded-iv",
+    severity: "critical",
+    category: "weak-crypto",
+    title: "createCipheriv called with a hardcoded IV literal",
+    re: /\bcreateCipheriv\s*\(\s*[^,]+,\s*[^,]+,\s*(?:Buffer\s*\.\s*from\s*\(\s*['"][0-9a-fA-F]{16,}['"]|['"][A-Za-z0-9+/=]{16,}['"])/g,
+    rationale: "A static IV destroys the semantic security of CBC/CTR/GCM — identical plaintexts encrypt to identical ciphertexts, and for GCM it enables key recovery.",
+    fix: "Generate a fresh IV per message with crypto.randomBytes(12) for GCM or 16 for CBC, and prepend it to the ciphertext.",
+  },
+  {
+    id: "crypto-ecb-mode",
+    severity: "critical",
+    category: "weak-crypto",
+    title: "ECB cipher mode in use",
+    re: /\bcreateCipher(?:iv)?\s*\(\s*['"](?:aes-(?:128|192|256)-ecb|des-ecb|des-ede-ecb|des-ede3-ecb|bf-ecb|rc2-ecb)['"]/gi,
+    rationale: "ECB encrypts identical blocks to identical ciphertexts — the classic ECB penguin. Reveals patterns in plaintext and leaks structure.",
+    fix: "Use aes-256-gcm with a unique IV per message. Never ECB for anything but a single block of random data.",
+  },
+  {
+    id: "crypto-rsa-without-oaep",
+    severity: "medium",
+    category: "weak-crypto",
+    title: "RSA encryption using PKCS#1 v1.5 padding",
+    re: /\bcrypto\s*\.\s*publicEncrypt\s*\(\s*\{[^}]*padding\s*:\s*crypto\s*\.\s*constants\s*\.\s*RSA_PKCS1_PADDING/g,
+    rationale: "PKCS#1 v1.5 is vulnerable to Bleichenbacher-style padding-oracle attacks when the decryption side leaks error modes.",
+    fix: "Use RSA_PKCS1_OAEP_PADDING with SHA-256. Better yet, use hybrid encryption (RSA-KEM or ECIES) for real-world payloads.",
+  },
+  {
+    id: "crypto-short-rsa-key",
+    severity: "critical",
+    category: "weak-crypto",
+    title: "RSA key generated with < 2048-bit modulus",
+    re: /\bgenerateKeyPair(?:Sync)?\s*\(\s*['"]rsa['"]\s*,\s*\{[^}]*modulusLength\s*:\s*(?:512|1024)\b/g,
+    rationale: "512- and 1024-bit RSA is factorable today (1024 is borderline; 512 is trivially broken).",
+    fix: "Use modulusLength: 2048 minimum; 3072+ for anything long-lived. Or switch to Ed25519 with generateKeyPair('ed25519').",
+  },
+  {
+    id: "crypto-short-aes-key",
+    severity: "critical",
+    category: "weak-crypto",
+    title: "AES cipher with undersized key (aes-40 / aes-64)",
+    re: /\bcreateCipher(?:iv)?\s*\(\s*['"]aes-(?:40|64)-/gi,
+    rationale: "AES is defined for 128/192/256-bit keys. Non-standard short variants are either export-grade crippled or nonexistent in the spec.",
+    fix: "Use aes-256-gcm with a 32-byte key from crypto.randomBytes(32).",
+  },
+  {
+    id: "bcrypt-short-salt-rounds",
+    severity: "medium",
+    category: "weak-crypto",
+    title: "bcrypt hash with < 7 salt rounds",
+    re: /\bbcrypt\s*\.\s*(?:hash|hashSync)\s*\([^,]+,\s*[1-6]\s*[),]/g,
+    rationale: "Low bcrypt work factors (<=6) are trivially brute-forced on modern GPUs.",
+    fix: "Use 10-12 rounds minimum in 2026 (bcrypt.hash(pw, 12)). Revisit when hardware changes.",
+  },
+  {
+    id: "scrypt-low-n",
+    severity: "medium",
+    category: "weak-crypto",
+    title: "scrypt N parameter below recommended 2^14",
+    re: /\bscrypt(?:Sync)?\s*\([^)]*\{[^}]*\bN\s*:\s*(?:\d{1,4})\b[^}]*\}/g,
+    rationale: "N < 16384 is below OWASP's minimum and cheap to brute-force.",
+    fix: "Use N: 2**15 (32768) or 2**17 for interactive logins; r: 8, p: 1 as starting points.",
+  },
+
+  // --- Authentication ---
+  {
+    id: "jwt-decode-not-verify",
+    severity: "high",
+    category: "jwt",
+    title: "jwt.decode() used instead of jwt.verify()", // ironward-ignore
+    re: /\bjwt\s*\.\s*decode\s*\(/g, // ironward-ignore
+    rationale: "jwt.decode does NOT check the signature — any attacker can forge a token and decode returns the forged payload.",
+    fix: "Use jwt.verify(token, secret, { algorithms: ['HS256'] }). Only use decode for inspecting unverified metadata (e.g. 'kid' lookup) and then verify.",
+  },
+  {
+    id: "cookie-no-samesite",
+    severity: "medium",
+    category: "framework",
+    title: "res.cookie called with options object missing sameSite",
+    re: /\bres\s*\.\s*cookie\s*\(\s*['"][^'"]+['"]\s*,\s*[^,]+\s*,\s*\{(?![^}]*sameSite)[^}]+\}/g,
+    rationale: "Without SameSite, the cookie is sent on cross-site requests — CSRF and top-level navigation attacks become trivial.",
+    fix: "Add sameSite: 'lax' for login sessions, 'strict' for sensitive flows. Also set httpOnly: true and secure: true.",
+  },
+  {
+    id: "password-in-url-query",
+    severity: "medium",
+    category: "insecure-protocol",
+    title: "Password / secret passed as a URL query parameter",
+    re: /[?&](?:password|pwd|secret|api[_-]?key|token)=[^&\s"'`)]+/gi,
+    rationale: "URL query parameters are logged by proxies, browsers, and server access logs — long-lived leak.",
+    fix: "Send credentials in the Authorization header or a POST body. Never on the query string.",
+  },
+  {
+    id: "basic-auth-over-http",
+    severity: "high",
+    category: "insecure-protocol",
+    title: "HTTP Basic auth over plain http://",
+    re: /http:\/\/[^\s"'`]*[?&]auth(?:orization)?=|Authorization\s*:\s*Basic\s+[A-Za-z0-9+/=]+/g,
+    rationale: "Basic auth is base64, not encryption. Over http:// the credentials are plaintext on the wire.",
+    fix: "Switch the endpoint to https://. For public APIs, use bearer tokens with short lifetimes instead of Basic.",
+  },
+  {
+    id: "timing-unsafe-comparison",
+    severity: "high",
+    category: "timing-attack",
+    title: "Secret compared with == / === against request input",
+    re: /\b(?:password|token|secret|apiKey|api_key|hmac|signature)\s*(?:===?|!==?)\s*(?:req|request|ctx)\s*\.\s*(?:body|params|query|headers)/gi,
+    rationale: "String equality short-circuits on first mismatch — the attacker can measure request time to learn the secret byte-by-byte.",
+    fix: "Use crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b)) after ensuring equal lengths.",
+  },
+  {
+    id: "hmac-no-timing-safe",
+    severity: "medium",
+    category: "timing-attack",
+    title: "HMAC digest compared with == / === (timing attack)",
+    re: /\.\s*digest\s*\(\s*['"](?:hex|base64|base64url)?['"]?\s*\)\s*===?\s*/g,
+    rationale: "Comparing an HMAC via string equality leaks the digest byte-by-byte via timing.",
+    fix: "Compute both digests as Buffers and compare with crypto.timingSafeEqual.",
+  },
+
+  // --- Node.js specific ---
+  {
+    id: "child-process-exec-template",
+    severity: "high",
+    category: "dangerous-function",
+    title: "child_process.exec with a template literal (string interpolation)",
+    re: /\bchild_process\s*\.\s*exec\s*\(\s*`[^`]*\$\{/g,
+    rationale: "Template-literal interpolation into exec is shell concatenation — command injection if any value is user-controlled.",
+    fix: "Use execFile(cmd, [arg1, arg2], cb) with arguments as an array. Never interpolate into a shell string.",
+  },
+  {
+    id: "require-user-input",
+    severity: "critical",
+    category: "dangerous-function",
+    title: "require() called with request input (arbitrary module load)",
+    re: /\brequire\s*\(\s*(?:req|request|ctx)\s*\.\s*(?:body|params|query|headers)/g,
+    rationale: "Loading a module chosen by the attacker can execute arbitrary code from node_modules or via path traversal.",
+    fix: "Map user input to a fixed allowlist of module names and require() the mapped value, not the input.",
+  },
+  {
+    id: "fs-write-user-path",
+    severity: "high",
+    category: "unsafe-io",
+    title: "fs.writeFile / appendFile called with request input as the path",
+    re: /\bfs\s*\.\s*(?:writeFile|writeFileSync|appendFile|appendFileSync)\s*\(\s*(?:req|request|ctx)\s*\.\s*(?:body|params|query|headers)/g,
+    rationale: "Writing to a user-controlled path lets attackers overwrite arbitrary files (configs, deploy hooks, .ssh/authorized_keys).",
+    fix: "Resolve the path against a safe base dir and assert path.resolve(base, input).startsWith(base + sep).",
+  },
+
+  // --- Python-specific ---
+  {
+    id: "py-pickle-loads-untrusted",
+    severity: "critical",
+    category: "python",
+    title: "pickle.load/loads on untrusted input",
+    re: /\bpickle\s*\.\s*loads?\s*\(\s*(?:request\s*\.|flask\s*\.\s*request\s*\.|bytes\s*\()/g,
+    rationale: "pickle deserialization of attacker-controlled bytes is direct RCE — __reduce__ runs arbitrary code on load.",
+    fix: "Use JSON (json.loads) or a schema validator (pydantic). Never pickle anything that crosses a trust boundary.",
+  },
+  {
+    id: "py-yaml-load-unsafe",
+    severity: "critical",
+    category: "python",
+    title: "yaml.load without SafeLoader",
+    re: /\byaml\s*\.\s*load\s*\((?![^)]*Loader\s*=\s*(?:yaml\s*\.\s*)?(?:Safe|CSafe)Loader)/g,
+    rationale: "yaml.load with the default FullLoader/UnsafeLoader deserializes Python objects — !!python/object tags are RCE.",
+    fix: "Use yaml.safe_load() or pass Loader=yaml.SafeLoader explicitly.",
+  },
+  {
+    id: "py-subprocess-shell-true",
+    severity: "high",
+    category: "python",
+    title: "subprocess call with shell=True",
+    re: /\bsubprocess\s*\.\s*(?:call|run|Popen|check_output|check_call)\s*\([^)]*shell\s*=\s*True/g,
+    rationale: "shell=True spawns /bin/sh -c — any concatenated user input becomes command injection.",
+    fix: "Pass args as a list and omit shell=True: subprocess.run(['git', 'log', '--', user_path]).",
+  },
+  {
+    id: "py-assert-security-check",
+    severity: "medium",
+    category: "python",
+    title: "assert used for an authorization or security check",
+    re: /\bassert\s+(?:request\s*\.|flask\s*\.\s*request\s*\.|self\s*\.\s*is_authenticated|is_admin\b|has_permission\s*\(|current_user\s*\.\s*is_admin)/g,
+    rationale: "Python's assert is stripped when code runs with -O (optimize). The security check silently disappears in production.",
+    fix: "Replace with an explicit if not ...: raise HTTPException(403) (or framework equivalent).",
+  },
+  {
+    id: "py-django-debug-true",
+    severity: "medium",
+    category: "python",
+    title: "Django DEBUG = True in settings",
+    re: /^\s*DEBUG\s*=\s*True\b/gm,
+    rationale: "DEBUG=True in Django exposes full stack traces, settings, and the debug error page with source snippets to any visitor.",
+    fix: "Set DEBUG = os.environ.get('DJANGO_DEBUG') == '1' and leave it unset in production.",
+  },
+  {
+    id: "py-flask-debug-true",
+    severity: "medium",
+    category: "python",
+    title: "Flask app.run() with debug=True",
+    re: /\bapp\s*\.\s*run\s*\([^)]*\bdebug\s*=\s*True/g,
+    rationale: "Flask's debug mode exposes the Werkzeug interactive debug UI — attackers can execute Python in the server process.",
+    fix: "Never set debug=True in production. Gate on an env var and default to False.",
+  },
+  {
+    id: "py-exec-call",
+    severity: "high",
+    category: "dangerous-function",
+    title: "Python exec() call",
+    // Match only Python-style usages: f"..."-strings, request.*, compile(), or
+    // the statement-in-a-function pattern typical of Python (`    exec(` on a
+    // line of its own). Avoid matching JS's child_process.exec("cmd", ...).
+    re: /(?<![A-Za-z0-9_$.])exec\s*\(\s*(?:f['"]|request\s*\.|flask\s*\.\s*request\s*\.|compile\s*\()/g,
+    rationale: "Python's exec() compiles and runs a string as code. Anything user-controlled reaching it is RCE.",
+    fix: "Remove exec(). Use a dispatch dict mapping names to functions, or ast.literal_eval for data.",
+  },
+
+  // --- Info leaks ---
+  {
+    id: "source-map-reference-in-prod",
+    severity: "low",
+    category: "debug-leak",
+    title: "Source map reference in a minified bundle",
+    re: /\/\/#\s*sourceMappingURL\s*=\s*[^\s]+\.map/g,
+    rationale: "Shipping sourceMappingURL in production exposes original source, comments, and module structure to anyone with devtools.",
+    fix: "Strip the comment for production builds (terser: sourceMap: { url: 'inline' } is also wrong). Host maps only for your error tracker behind auth.",
+  },
+  {
+    id: "stack-trace-in-response",
+    severity: "medium",
+    category: "debug-leak",
+    title: "Stack trace sent to client in HTTP response",
+    re: /\bres\s*\.\s*(?:send|json)\s*\([^)]*\berr(?:or)?\s*\.\s*stack\b|\bres\s*\.\s*status\s*\(\s*\d+\s*\)\s*\.\s*(?:send|json)\s*\([^)]*\berr(?:or)?\s*\.\s*stack\b/g,
+    rationale: "Stack traces leak file paths, dependency versions, and occasionally secrets pulled into error messages.",
+    fix: "Log err.stack server-side. Send the client a generic 500 with a correlation id; no stack.",
   },
 ];
 

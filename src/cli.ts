@@ -15,6 +15,7 @@ import { IgnoreMatcher, DEFAULT_IGNORE_PATTERNS } from "./engines/ignore.js";
 import { ScanCache, sha256 } from "./engines/scan-cache.js";
 import { filesForScope, isGitRepo, parseScopeFromArgs, type GitScope } from "./engines/git-diff.js";
 import { mapConcurrent, defaultConcurrency } from "./engines/concurrent.js";
+import { dedupByValue } from "./engines/dedup.js";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json") as { version: string; name: string };
@@ -52,6 +53,10 @@ Git-scoped scanning (makes pre-commit hooks instant):
 
 Cache:
   --no-cache                        ignore ~/.ironward/cache.json for this run
+
+Confidence + dedup:
+  --verbose                         include low-confidence findings (40-59)
+  --no-dedup                        keep cross-file duplicates as separate findings
 
 Ignore rules (applied to every scan):
   - .gitignore and .ironwardignore (if present) at the project root
@@ -253,9 +258,18 @@ function writeStdoutSync(s: string): void {
   }
 }
 
-export function parseArgs(args: string[]): { format: OutputFormat; scope: GitScope | null; noCache: boolean; rest: string[] } {
+export function parseArgs(args: string[]): {
+  format: OutputFormat;
+  scope: GitScope | null;
+  noCache: boolean;
+  verbose: boolean;
+  noDedup: boolean;
+  rest: string[];
+} {
   let format: OutputFormat = "text";
   let noCache = false;
+  let verbose = false;
+  let noDedup = false;
   const preRest: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -270,13 +284,17 @@ export function parseArgs(args: string[]): { format: OutputFormat; scope: GitSco
       throw new Error(`--format expects "json" or "text", got: ${eq}`);
     }
     if (a === "--no-cache") { noCache = true; continue; }
+    if (a === "--verbose" || a === "-v") { verbose = true; continue; }
+    if (a === "--no-dedup") { noDedup = true; continue; }
     preRest.push(a);
   }
   const { scope, rest } = parseScopeFromArgs(preRest);
-  return { format, scope, noCache, rest };
+  return { format, scope, noCache, verbose, noDedup, rest };
 }
 
-async function runSecretsCli(targets: string[], format: OutputFormat = "text", scope: GitScope | null = null): Promise<number> {
+interface ScanOpts { verbose?: boolean; noDedup?: boolean }
+
+async function runSecretsCli(targets: string[], format: OutputFormat = "text", scope: GitScope | null = null, opts: ScanOpts = {}): Promise<number> {
   if (targets.length === 0 && !scope) {
     if (format === "json") writeStdoutSync(JSON.stringify({ tool: "scan_for_secrets", error: "no paths provided" }) + "\n");
     else console.error("ironward scan-secrets: no paths provided.");
@@ -307,7 +325,7 @@ async function runSecretsCli(targets: string[], format: OutputFormat = "text", s
   let cacheHits = 0;
   let done = 0;
 
-  const reports = await mapConcurrent(
+  const rawReports = await mapConcurrent(
     files,
     defaultConcurrency(),
     async (f) => {
@@ -324,21 +342,57 @@ async function runSecretsCli(targets: string[], format: OutputFormat = "text", s
       }
       return { path: rel, findings } as FileReport;
     },
-    (report) => {
+    (_report) => {
       done++;
-      if (streamText && report.findings.length > 0) {
-        progress.clear();
-        for (const fnd of report.findings) {
-          const sev = fnd.severity.toUpperCase();
-          console.log(`[${sev}] ${report.path}:${fnd.line}  ${fnd.type}`);
-          if (fnd.description) console.log(`  ${fnd.description}`);
-        }
-      }
-      progress.update(done, report.path);
+      progress.update(done, _report.path);
     },
   );
   progress.clear();
   await cache.save().catch(() => {/* cache is best-effort */});
+
+  // Apply confidence filter (suppress < 40 always; hide 40-59 unless --verbose).
+  const minConfidence = opts.verbose ? 40 : 60;
+  let suppressedLowConf = 0;
+  const filtered: FileReport[] = rawReports.map((r) => {
+    const kept = r.findings.filter((f) => {
+      if ((f.confidence ?? 100) < minConfidence) { suppressedLowConf++; return false; }
+      return true;
+    });
+    return { path: r.path, findings: kept };
+  });
+
+  // Apply cross-file dedup unless the user opted out.
+  const reports: FileReport[] = [];
+  if (!opts.noDedup) {
+    const flat: Array<{ path: string; finding: typeof filtered[number]["findings"][number] }> = [];
+    for (const r of filtered) for (const fnd of r.findings) flat.push({ path: r.path, finding: fnd });
+    const deduped = dedupByValue(flat);
+    const byPath = new Map<string, typeof filtered[number]["findings"]>();
+    for (const e of deduped) {
+      if (!byPath.has(e.path)) byPath.set(e.path, []);
+      byPath.get(e.path)!.push(e.finding);
+    }
+    for (const r of filtered) {
+      reports.push({ path: r.path, findings: byPath.get(r.path) ?? [] });
+    }
+  } else {
+    reports.push(...filtered);
+  }
+
+  // Stream findings now that filtering/dedup is done.
+  if (streamText) {
+    for (const r of reports) {
+      for (const fnd of r.findings) {
+        const sev = fnd.severity.toUpperCase();
+        const confTag = fnd.confidence !== undefined ? ` conf=${fnd.confidence}` : "";
+        console.log(`[${sev}${confTag}] ${r.path}:${fnd.line}  ${fnd.type}`);
+        if (fnd.description) console.log(`  ${fnd.description}`);
+        if (fnd.duplicates && fnd.duplicates.length > 0) {
+          console.log(`  ↳ also seen in ${fnd.duplicates.length} other location${fnd.duplicates.length === 1 ? "" : "s"}`);
+        }
+      }
+    }
+  }
 
   const bySev: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
   let total = 0;
@@ -352,12 +406,13 @@ async function runSecretsCli(targets: string[], format: OutputFormat = "text", s
   };
 
   if (format === "json") {
-    writeStdoutSync(JSON.stringify({ tool: "scan_for_secrets", filesScanned: files.length, cached: cacheHits, ...out }) + "\n");
+    writeStdoutSync(JSON.stringify({ tool: "scan_for_secrets", filesScanned: files.length, cached: cacheHits, suppressedLowConfidence: suppressedLowConf, ...out }) + "\n");
   } else {
     if (total === 0) console.log("No secrets detected. All scanned files are clean.");
     else console.log(`\nScan summary: ${total} findings (${bySev.critical} critical, ${bySev.high} high, ${bySev.medium} medium, ${bySev.low} low).`);
     const cacheNote = cacheHits > 0 ? ` (${cacheHits} cached)` : "";
-    console.log(`Scanned ${files.length} file${files.length === 1 ? "" : "s"} in ${Date.now() - startMs}ms${cacheNote}.`);
+    const suppressedNote = suppressedLowConf > 0 ? ` (${suppressedLowConf} low-confidence suppressed; use --verbose to see)` : "";
+    console.log(`Scanned ${files.length} file${files.length === 1 ? "" : "s"} in ${Date.now() - startMs}ms${cacheNote}${suppressedNote}.`);
   }
 
   if (isRecordingEnabled() && format === "text") {
@@ -524,7 +579,7 @@ async function runCodeCli(targets: string[], format: OutputFormat = "text", scop
   return out.summary.bySeverity.critical > 0 || out.summary.bySeverity.high > 0 ? 2 : 1;
 }
 
-async function runFullScanCli(targets: string[], format: OutputFormat = "text", scope: GitScope | null = null): Promise<number> {
+async function runFullScanCli(targets: string[], format: OutputFormat = "text", scope: GitScope | null = null, opts: ScanOpts = {}): Promise<number> {
   const target = targets[0] ?? ".";
   const warning = warnIfDangerousRoot(target);
   if (warning) {
@@ -558,7 +613,7 @@ async function runFullScanCli(targets: string[], format: OutputFormat = "text", 
   const track = (code: number) => { if (code > worstExit) worstExit = code; };
 
   console.log("── scan-secrets ──");
-  track(await runSecretsCli([target], "text", scope));
+  track(await runSecretsCli([target], "text", scope, opts));
   console.log("\n── scan-code ──");
   track(await runCodeCli([target], "text", scope));
   console.log("\n── scan-deps ──");
@@ -689,7 +744,7 @@ export async function runCli(argv: string[]): Promise<number> {
     console.error((err as Error).message);
     return 2;
   }
-  const { format, scope, noCache, rest } = parsed;
+  const { format, scope, noCache, verbose, noDedup, rest } = parsed;
   if (noCache) process.env.IRONWARD_NO_CACHE = "1";
 
   switch (cmd) {
@@ -705,9 +760,9 @@ export async function runCli(argv: string[]): Promise<number> {
       await startMcpServer();
       return 0;
     case "scan-secrets":
-      return await runSecretsCli(rest, format, scope);
+      return await runSecretsCli(rest, format, scope, { verbose, noDedup });
     case "scan":
-      return await runFullScanCli(rest, format, scope);
+      return await runFullScanCli(rest, format, scope, { verbose, noDedup });
     case "scan-code":
       return await runCodeCli(rest, format, scope);
     case "scan-deps":

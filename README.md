@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/ironward"><img alt="npm" src="https://img.shields.io/npm/v/ironward?color=9af99a&label=npm"></a>
   <a href="https://github.com/rayentr/ironward/actions"><img alt="tests" src="https://img.shields.io/badge/tests-286%2F286-9af99a"></a>
-  <a href="./vscode-extension"><img alt="vscode" src="https://img.shields.io/badge/VS%20Code-extension-9af99a"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=ironward.ironward"><img alt="vscode" src="https://img.shields.io/visual-studio-marketplace/v/ironward.ironward?color=9af99a&label=VS%20Code"></a>
   <a href="./LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-9af99a"></a>
   <a href="https://www.npmjs.com/package/ironward"><img alt="downloads" src="https://img.shields.io/npm/dm/ironward?color=9af99a"></a>
 </p>

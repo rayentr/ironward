@@ -50,13 +50,30 @@ function compilePattern(source: string): { regex: RegExp; flags: string } {
   return { regex: new RegExp(source, flags), flags };
 }
 
+/**
+ * Inject a pre-loaded patterns map. Use this from bundled environments
+ * (VS Code extension, etc.) where import.meta.url / fs access is unreliable.
+ * Once injected, file loading is skipped.
+ */
+export function setPatterns(patterns: Record<string, PatternDef>): void {
+  compiled = Object.entries(patterns).map(([name, def]) => {
+    const { regex } = compilePattern(def.pattern);
+    const allowlist = def.allowlist ? compilePattern(def.allowlist).regex : undefined;
+    return { name, regex, allowlist, def };
+  });
+}
+
 async function loadPatterns(): Promise<CompiledPattern[]> {
   if (compiled) return compiled;
-  const here = dirname(fileURLToPath(import.meta.url));
-  const candidates = [
+  // In CJS bundles, import.meta.url can be undefined; guard carefully.
+  let here: string | null = null;
+  try {
+    if (typeof import.meta?.url === "string") here = dirname(fileURLToPath(import.meta.url));
+  } catch { /* ignore */ }
+  const candidates: string[] = here ? [
     join(here, "../../patterns/secrets.json"),
     join(here, "../patterns/secrets.json"),
-  ];
+  ] : [];
   let raw: string | null = null;
   for (const p of candidates) {
     try {
@@ -64,7 +81,7 @@ async function loadPatterns(): Promise<CompiledPattern[]> {
       break;
     } catch {}
   }
-  if (!raw) throw new Error("secrets.json pattern file not found");
+  if (!raw) throw new Error("secrets.json pattern file not found — call setPatterns() to provide patterns directly.");
   const parsed = JSON.parse(raw) as Record<string, PatternDef>;
   compiled = Object.entries(parsed).map(([name, def]) => {
     const { regex } = compilePattern(def.pattern);

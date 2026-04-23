@@ -23,6 +23,9 @@ npm-debug.log*
 ironward-report.json
 *.tgz
 
+# VS Code extension build output
+*.vsix
+
 # editors
 .vscode/
 .idea/

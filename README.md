@@ -5,6 +5,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/ironward"><img alt="npm" src="https://img.shields.io/npm/v/ironward?color=9af99a&label=npm"></a>
   <a href="https://github.com/rayentr/ironward/actions"><img alt="tests" src="https://img.shields.io/badge/tests-286%2F286-9af99a"></a>
+  <a href="./vscode-extension"><img alt="vscode" src="https://img.shields.io/badge/VS%20Code-extension-9af99a"></a>
   <a href="./LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-9af99a"></a>
   <a href="https://www.npmjs.com/package/ironward"><img alt="downloads" src="https://img.shields.io/npm/dm/ironward?color=9af99a"></a>
 </p>
@@ -216,6 +217,23 @@ Output format
   --format json                     machine-readable output for CI
   --format text                     (default)
 ```
+
+---
+
+## VS Code extension
+
+Ironward ships a native VS Code extension — inline squiggles, scan on save, status bar count, and a one-click "suppress this finding" quick-fix. Bundled standalone — no CLI install needed.
+
+```bash
+# Marketplace
+code --install-extension rayentr.ironward
+
+# Or from a local .vsix build
+cd vscode-extension && npm install && npm run package
+code --install-extension ironward-vscode.vsix
+```
+
+Settings: `ironward.scanOnSave`, `ironward.minConfidence`, `ironward.enabledScanners`. See the [extension README](./vscode-extension/README.md) for details.
 
 ---
 

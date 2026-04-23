@@ -1,70 +1,101 @@
 {
-  "name": "aegis-mcp-vscode",
-  "displayName": "Aegis MCP",
-  "description": "AI-powered security scanner. Finds secrets, auth bugs, SQL injection, and vulnerable dependencies. Registers itself as an MCP server for VS Code's Chat / Copilot.",
-  "version": "0.5.0",
-  "publisher": "aegis-mcp",
+  "name": "ironward",
+  "displayName": "Ironward — Security scanning for the vibe coding era",
+  "description": "Offline security scanner: 665 secret patterns, 61 static rules, OSV CVE lookup, Docker/K8s/Terraform/GitHub Actions. Inline diagnostics, scan on save, quick-fix suppression. Zero API key for core tools.",
+  "version": "1.7.0",
+  "publisher": "rayentr",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aegis-mcp/aegis-mcp"
+    "url": "https://github.com/rayentr/ironward"
   },
+  "bugs": {
+    "url": "https://github.com/rayentr/ironward/issues"
+  },
+  "homepage": "https://github.com/rayentr/ironward#readme",
   "engines": {
-    "vscode": "^1.95.0"
+    "vscode": "^1.85.0"
   },
   "categories": ["Linters", "Other"],
-  "activationEvents": [],
+  "keywords": ["security", "scanner", "secrets", "sast", "mcp", "vulnerability", "ironward"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "aegis-mcp.scanWorkspace",
-        "title": "Aegis MCP: Scan Workspace for Secrets",
-        "category": "Aegis MCP"
+        "command": "ironward.scanWorkspace",
+        "title": "Scan workspace",
+        "category": "Ironward"
       },
       {
-        "command": "aegis-mcp.scanCurrentFile",
-        "title": "Aegis MCP: Scan Current File for Secrets",
-        "category": "Aegis MCP"
+        "command": "ironward.scanCurrentFile",
+        "title": "Scan current file",
+        "category": "Ironward"
       },
       {
-        "command": "aegis-mcp.configureMcp",
-        "title": "Aegis MCP: Show MCP Configuration",
-        "category": "Aegis MCP"
+        "command": "ironward.clearFindings",
+        "title": "Clear findings",
+        "category": "Ironward"
+      },
+      {
+        "command": "ironward.openOutput",
+        "title": "Show output",
+        "category": "Ironward"
       }
     ],
     "configuration": {
-      "title": "Aegis MCP",
+      "title": "Ironward",
       "properties": {
-        "aegis-mcp.autoScanOnSave": {
+        "ironward.scanOnSave": {
           "type": "boolean",
-          "default": false,
-          "description": "Scan each file for secrets when it is saved."
+          "default": true,
+          "description": "Re-scan a file every time it is saved."
         },
-        "aegis-mcp.serverCommand": {
-          "type": "string",
-          "default": "npx",
-          "description": "Command used to start the Aegis MCP server."
+        "ironward.scanOnOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Scan files when they are opened in the editor."
         },
-        "aegis-mcp.serverArgs": {
+        "ironward.minConfidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 60,
+          "description": "Hide secret findings below this confidence score. Set to 0 to show everything."
+        },
+        "ironward.enabledScanners": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": ["-y", "aegis-mcp@latest"],
-          "description": "Arguments passed to the server command."
+          "default": ["secrets", "code"],
+          "description": "Which scanners run inline. Options: secrets, code.",
+          "items": {
+            "type": "string",
+            "enum": ["secrets", "code"]
+          }
+        },
+        "ironward.statusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Ironward count in the status bar."
         }
       }
     }
   },
   "scripts": {
-    "build": "tsc -p .",
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --platform=node --target=node20 --format=cjs --external:vscode --minify",
+    "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --platform=node --target=node20 --format=cjs --external:vscode --watch",
+    "typecheck": "tsc --noEmit",
+    "package": "npm run build && vsce package --no-dependencies -o ironward-vscode.vsix",
+    "publish": "npm run build && vsce publish --no-dependencies",
     "vscode:prepublish": "npm run build"
-  },
-  "dependencies": {
-    "aegis-mcp": "^0.5.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "@types/vscode": "^1.95.0",
-    "typescript": "^5.6.3"
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.3",
+    "ironward": "file:.."
   }
 }

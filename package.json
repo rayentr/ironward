@@ -1,6 +1,6 @@
 {
   "name": "ironward",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Security scanning for the vibe coding era. MCP server + CLI that finds secrets, auth bugs, SQL injection, XSS, IDOR, and vulnerable deps — and opens fix PRs. Works in Cursor, Claude Code, and VS Code. Bring your own model (Anthropic, OpenAI, Gemini, Groq, Ollama).",
   "type": "module",
   "bin": {
@@ -9,7 +9,10 @@
   "main": "dist/server.js",
   "exports": {
     ".": "./dist/server.js",
-    "./cli": "./dist/cli.js"
+    "./cli": "./dist/cli.js",
+    "./engines/*": "./dist/engines/*.js",
+    "./tools/*": "./dist/tools/*.js",
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "tsc",

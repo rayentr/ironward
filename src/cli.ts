@@ -20,6 +20,9 @@ import { ScanCache, sha256 } from "./engines/scan-cache.js";
 import { filesForScope, isGitRepo, parseScopeFromArgs, type GitScope } from "./engines/git-diff.js";
 import { mapConcurrent, defaultConcurrency } from "./engines/concurrent.js";
 import { dedupByValue } from "./engines/dedup.js";
+import { buildSarif, type NormalizedFinding } from "./engines/sarif.js";
+import { buildJunit } from "./engines/junit.js";
+import { buildWebhookPayload, postWebhook } from "./engines/webhook.js";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json") as { version: string; name: string };
@@ -57,8 +60,14 @@ Misc:
   ironward --help | -h              print this help
 
 Output format:
-  --format json | text              scan commands accept --format json for CI use
-                                    (default: text)
+  --format text                     human-readable (default)
+  --format json                     machine-readable for CI
+  --format sarif                    SARIF 2.1.0 — upload to GitHub Security tab
+  --format junit                    JUnit XML — CI test panels (Jenkins, GitLab, …)
+
+Webhook:
+  --webhook <url>                   POST findings to any URL after scanning
+                                    (auto-detects Slack webhook format)
 
 Git-scoped scanning (makes pre-commit hooks instant):
   --staged                          scan only staged files
@@ -224,7 +233,11 @@ function exitCodeForSecrets(reports: FileReport[]): number {
   return total > 0 ? 1 : 0;
 }
 
-export type OutputFormat = "text" | "json";
+export type OutputFormat = "text" | "json" | "sarif" | "junit";
+
+function isOutputFormat(v: string): v is OutputFormat {
+  return v === "text" || v === "json" || v === "sarif" || v === "junit";
+}
 
 class ProgressReporter {
   private readonly enabled: boolean;
@@ -255,6 +268,24 @@ class ProgressReporter {
   }
 }
 
+async function emitStructured(
+  format: OutputFormat,
+  findings: NormalizedFinding[],
+  webhookUrl: string | null,
+  opts: { target: string },
+): Promise<void> {
+  if (format === "sarif") {
+    writeStdoutSync(JSON.stringify(buildSarif(findings, pkg.version)) + "\n");
+  } else if (format === "junit") {
+    writeStdoutSync(buildJunit(findings));
+  }
+  if (webhookUrl) {
+    const payload = buildWebhookPayload(findings, { version: pkg.version, target: opts.target });
+    const r = await postWebhook(webhookUrl, payload);
+    if (!r.ok) console.error(`webhook POST failed: ${r.error ?? r.status}`);
+  }
+}
+
 function writeStdoutSync(s: string): void {
   // Synchronous stdout write avoids truncation when output > 64KB pipe buffer.
   // Chunks into ~32KB pieces since writeSync with a large Buffer can still stall on macOS.
@@ -278,6 +309,7 @@ export function parseArgs(args: string[]): {
   noCache: boolean;
   verbose: boolean;
   noDedup: boolean;
+  webhook: string | null;
   rest: string[];
 } {
   let format: OutputFormat = "text";
@@ -289,13 +321,24 @@ export function parseArgs(args: string[]): {
     const a = args[i];
     if (a === "--format" || a === "-f") {
       const v = args[i + 1];
-      if (v === "json" || v === "text") { format = v; i++; continue; }
-      throw new Error(`--format expects "json" or "text", got: ${v ?? "(nothing)"}`);
+      if (v && isOutputFormat(v)) { format = v; i++; continue; }
+      throw new Error(`--format expects one of: text, json, sarif, junit. Got: ${v ?? "(nothing)"}`);
     }
     const eq = a.startsWith("--format=") ? a.slice("--format=".length) : null;
     if (eq !== null) {
-      if (eq === "json" || eq === "text") { format = eq as OutputFormat; continue; }
-      throw new Error(`--format expects "json" or "text", got: ${eq}`);
+      if (isOutputFormat(eq)) { format = eq; continue; }
+      throw new Error(`--format expects one of: text, json, sarif, junit. Got: ${eq}`);
+    }
+    if (a === "--webhook" || a === "-w") {
+      const v = args[i + 1];
+      if (!v) throw new Error("--webhook requires a URL");
+      (preRest as any)._webhook = v;
+      i++;
+      continue;
+    }
+    if (a.startsWith("--webhook=")) {
+      (preRest as any)._webhook = a.slice("--webhook=".length);
+      continue;
     }
     if (a === "--no-cache") { noCache = true; continue; }
     if (a === "--verbose" || a === "-v") { verbose = true; continue; }
@@ -303,10 +346,11 @@ export function parseArgs(args: string[]): {
     preRest.push(a);
   }
   const { scope, rest } = parseScopeFromArgs(preRest);
-  return { format, scope, noCache, verbose, noDedup, rest };
+  const webhook = (preRest as any)._webhook ?? null;
+  return { format, scope, noCache, verbose, noDedup, webhook, rest };
 }
 
-interface ScanOpts { verbose?: boolean; noDedup?: boolean }
+interface ScanOpts { verbose?: boolean; noDedup?: boolean; webhook?: string | null }
 
 async function runSecretsCli(targets: string[], format: OutputFormat = "text", scope: GitScope | null = null, opts: ScanOpts = {}): Promise<number> {
   if (targets.length === 0 && !scope) {
@@ -419,14 +463,34 @@ async function runSecretsCli(targets: string[], format: OutputFormat = "text", s
     summary: { totalFindings: total, bySeverity: bySev as any, blocked: false },
   };
 
+  const normalized: NormalizedFinding[] = reports.flatMap((r) =>
+    r.findings.map((f) => ({
+      ruleId: f.type,
+      severity: f.severity,
+      title: `${f.type}: ${f.description}`,
+      description: f.description,
+      file: r.path,
+      line: f.line,
+      column: f.column,
+      tool: "scan_for_secrets",
+    })),
+  );
+
   if (format === "json") {
     writeStdoutSync(JSON.stringify({ tool: "scan_for_secrets", filesScanned: files.length, cached: cacheHits, suppressedLowConfidence: suppressedLowConf, ...out }) + "\n");
+  } else if (format === "sarif" || format === "junit") {
+    await emitStructured(format, normalized, opts.webhook ?? null, { target: targets.join(",") });
   } else {
     if (total === 0) console.log("No secrets detected. All scanned files are clean.");
     else console.log(`\nScan summary: ${total} findings (${bySev.critical} critical, ${bySev.high} high, ${bySev.medium} medium, ${bySev.low} low).`);
     const cacheNote = cacheHits > 0 ? ` (${cacheHits} cached)` : "";
     const suppressedNote = suppressedLowConf > 0 ? ` (${suppressedLowConf} low-confidence suppressed; use --verbose to see)` : "";
     console.log(`Scanned ${files.length} file${files.length === 1 ? "" : "s"} in ${Date.now() - startMs}ms${cacheNote}${suppressedNote}.`);
+    if (opts.webhook) {
+      const payload = buildWebhookPayload(normalized, { version: pkg.version, target: targets.join(",") });
+      const r = await postWebhook(opts.webhook, payload);
+      console.log(r.ok ? `Webhook posted (${r.status}).` : `Webhook failed: ${r.error ?? r.status}`);
+    }
   }
 
   if (isRecordingEnabled() && format === "text") {
@@ -497,7 +561,7 @@ async function runUrlCli(targets: string[], format: OutputFormat = "text"): Prom
   return hasCritOrHigh ? 2 : 1;
 }
 
-async function runCodeCli(targets: string[], format: OutputFormat = "text", scope: GitScope | null = null): Promise<number> {
+async function runCodeCli(targets: string[], format: OutputFormat = "text", scope: GitScope | null = null, opts: ScanOpts = {}): Promise<number> {
   if (targets.length === 0 && !scope) {
     if (format === "json") writeStdoutSync(JSON.stringify({ tool: "scan_code", error: "no paths provided" }) + "\n");
     else console.error("ironward scan-code: no paths provided.");
@@ -560,13 +624,33 @@ async function runCodeCli(targets: string[], format: OutputFormat = "text", scop
     summary: { totalFindings, bySeverity: bySeverity as any, filesScanned: files.length },
   };
 
+  const normalizedCode: NormalizedFinding[] = reports.flatMap((r) =>
+    r.findings.map((f) => ({
+      ruleId: f.ruleId,
+      severity: f.severity,
+      title: f.title,
+      description: f.rationale,
+      file: r.path,
+      line: f.line,
+      column: f.column,
+      tool: "scan_code",
+    })),
+  );
+
   if (format === "json") {
     writeStdoutSync(JSON.stringify({ tool: "scan_code", filesScanned: files.length, cached: cacheHits, ...out }) + "\n");
+  } else if (format === "sarif" || format === "junit") {
+    await emitStructured(format, normalizedCode, opts.webhook ?? null, { target: targets.join(",") });
   } else {
     if (totalFindings === 0) console.log(`scan_code: no issues across ${files.length} file${files.length === 1 ? "" : "s"}.`);
     else console.log(`\nscan_code: ${totalFindings} findings (${bySeverity.critical} critical, ${bySeverity.high} high, ${bySeverity.medium} medium, ${bySeverity.low} low) in ${Date.now() - startMs}ms.`);
     const cacheNote = cacheHits > 0 ? ` (${cacheHits} cached)` : "";
     console.log(`Scanned ${files.length} file${files.length === 1 ? "" : "s"}${cacheNote}.`);
+    if (opts.webhook) {
+      const payload = buildWebhookPayload(normalizedCode, { version: pkg.version, target: targets.join(",") });
+      const r = await postWebhook(opts.webhook, payload);
+      console.log(r.ok ? `Webhook posted (${r.status}).` : `Webhook failed: ${r.error ?? r.status}`);
+    }
   }
 
   if (isRecordingEnabled() && format === "text") {
@@ -862,7 +946,7 @@ export async function runCli(argv: string[]): Promise<number> {
     console.error((err as Error).message);
     return 2;
   }
-  const { format, scope, noCache, verbose, noDedup, rest } = parsed;
+  const { format, scope, noCache, verbose, noDedup, webhook, rest } = parsed;
   if (noCache) process.env.IRONWARD_NO_CACHE = "1";
 
   switch (cmd) {
@@ -878,11 +962,11 @@ export async function runCli(argv: string[]): Promise<number> {
       await startMcpServer();
       return 0;
     case "scan-secrets":
-      return await runSecretsCli(rest, format, scope, { verbose, noDedup });
+      return await runSecretsCli(rest, format, scope, { verbose, noDedup, webhook });
     case "scan":
-      return await runFullScanCli(rest, format, scope, { verbose, noDedup });
+      return await runFullScanCli(rest, format, scope, { verbose, noDedup, webhook });
     case "scan-code":
-      return await runCodeCli(rest, format, scope);
+      return await runCodeCli(rest, format, scope, { verbose, noDedup, webhook });
     case "scan-deps":
       return await runDepsCli(rest, format);
     case "scan-url":

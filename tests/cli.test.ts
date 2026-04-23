@@ -156,6 +156,30 @@ test(".ironwardignore skips matching files during scan-secrets", async () => {
   }
 });
 
+test("scan-secrets --format sarif emits a SARIF 2.1.0 document", async () => {
+  const fixture = join(here, "fixtures", "leaky.js");
+  const { stdout } = await run(["scan-secrets", "--verbose", "--format", "sarif", fixture]);
+  const parsed = JSON.parse(stdout.trim()) as { version: string; runs: Array<{ tool: { driver: { name: string } }; results: unknown[] }> };
+  assert.equal(parsed.version, "2.1.0");
+  assert.equal(parsed.runs[0].tool.driver.name, "Ironward");
+  assert.ok(parsed.runs[0].results.length > 0);
+});
+
+test("scan-code --format junit emits XML with failure elements", async () => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const scratch = mkdtempSync(join(tmpdir(), "ironward-junit-"));
+  try {
+    writeFileSync(join(scratch, "bad.js"), "const x = eval('1+1');\n");
+    const { stdout } = await run(["scan-code", "--format", "junit", scratch]);
+    assert.match(stdout, /<\?xml version/);
+    assert.match(stdout, /<testsuites/);
+    assert.match(stdout, /<failure/);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
 test("--format with invalid value exits 2", async () => {
   const { code, stderr } = await run(["scan-secrets", "--format", "yaml", "."]);
   assert.equal(code, 2);

@@ -52,7 +52,7 @@ The extension bundles the Ironward scanning engine directly — no CLI installat
 From the Marketplace:
 
 ```
-code --install-extension rayentr.ironward
+code --install-extension ironward.ironward
 ```
 
 Or search for **Ironward** in the Extensions panel.

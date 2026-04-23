@@ -3,7 +3,7 @@
   "displayName": "Ironward — Security scanning for the vibe coding era",
   "description": "Offline security scanner: 665 secret patterns, 61 static rules, OSV CVE lookup, Docker/K8s/Terraform/GitHub Actions. Inline diagnostics, scan on save, quick-fix suppression. Zero API key for core tools.",
   "version": "1.7.0",
-  "publisher": "rayentr",
+  "publisher": "ironward",
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -226,7 +226,7 @@ Ironward ships a native VS Code extension — inline squiggles, scan on save, st
 
 ```bash
 # Marketplace
-code --install-extension rayentr.ironward
+code --install-extension ironward.ironward
 
 # Or from a local .vsix build
 cd vscode-extension && npm install && npm run package

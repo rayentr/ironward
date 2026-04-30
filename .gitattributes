@@ -1,0 +1,3 @@
+tests/fixtures/** linguist-generated=true linguist-vendored=true
+tests/fixtures/** -diff
+tests/fixtures/** export-ignore

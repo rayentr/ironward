@@ -1,33 +1,81 @@
-export type CodeSeverity = "critical" | "high" | "medium" | "low";
+import { SUPABASE_RULES } from "../rules/supabase.js";
+import { NEXTJS_RULES } from "../rules/nextjs.js";
+import { PRISMA_RULES } from "../rules/prisma.js";
+import { TRPC_RULES } from "../rules/trpc.js";
+import { CLERK_RULES } from "../rules/clerk.js";
+import { FIREBASE_RULES } from "../rules/firebase.js";
+import { STRIPE_RULES } from "../rules/stripe.js";
+import { REACT_RULES } from "../rules/react.js";
+import { INJECTION_RULES } from "../rules/injection.js";
+import { CRYPTOGRAPHY_RULES } from "../rules/cryptography.js";
+import { AUTHENTICATION_RULES } from "../rules/authentication.js";
+import { NODEJS_RULES } from "../rules/nodejs.js";
+import { PYTHON_RULES } from "../rules/python.js";
+import { JAVA_RULES } from "../rules/java.js";
+import { GO_RULES } from "../rules/go.js";
+import { API_SECURITY_RULES } from "../rules/api-security.js";
+import { CLOUD_SECURITY_RULES } from "../rules/cloud-security.js";
+import { PRISMA_ADVANCED_RULES } from "../rules/prisma-advanced.js";
+import { WEBSOCKET_RULES } from "../rules/websocket.js";
+import { GRAPHQL_RULES } from "../rules/graphql.js";
+import { RATE_LIMITING_RULES } from "../rules/rate-limiting.js";
+import { MOBILE_SECURITY_RULES } from "../rules/mobile-security.js";
+import { LOGGING_SECURITY_RULES } from "../rules/logging-security.js";
+import { DEP_SECURITY_RULES } from "../rules/dep-security.js";
+import { SECRETS_MGMT_RULES } from "../rules/secrets-mgmt.js";
+import { NODEJS_EXTENDED_RULES } from "../rules/nodejs-extended.js";
+import { PYTHON_EXTENDED_RULES } from "../rules/python-extended.js";
+
+export type CodeSeverity = "critical" | "high" | "medium" | "low" | "info";
+
+export type CodeCategory =
+  | "dangerous-function"
+  | "weak-crypto"
+  | "unsafe-io"
+  | "insecure-protocol"
+  | "debug-leak"
+  | "logging"
+  | "prototype-pollution"
+  | "open-redirect"
+  | "ssrf"
+  | "cors"
+  | "jwt"
+  | "rate-limit"
+  | "framework"
+  | "nosql"
+  | "xxe"
+  | "template-injection"
+  | "header-injection"
+  | "timing-attack"
+  | "python"
+  | "path-traversal"
+  | "supabase"
+  | "nextjs"
+  | "prisma-drizzle"
+  | "trpc"
+  | "clerk-auth"
+  | "firebase"
+  | "stripe"
+  | "react"
+  | "injection"
+  | "cryptography"
+  | "authentication"
+  | "nodejs"
+  | "java"
+  | "go";
 
 export interface CodeRule {
   id: string;
   severity: CodeSeverity;
-  category:
-    | "dangerous-function"
-    | "weak-crypto"
-    | "unsafe-io"
-    | "insecure-protocol"
-    | "debug-leak"
-    | "logging"
-    | "prototype-pollution"
-    | "open-redirect"
-    | "ssrf"
-    | "cors"
-    | "jwt"
-    | "rate-limit"
-    | "framework"
-    | "nosql"
-    | "xxe"
-    | "template-injection"
-    | "header-injection"
-    | "timing-attack"
-    | "python"
-    | "path-traversal";
+  category: CodeCategory;
   title: string;
   re: RegExp;
   rationale: string;
   fix: string;
+  confidence?: number;
+  owasp?: string;
+  languages?: string[];
+  negativePattern?: RegExp;
 }
 
 const REQ = "(?:req|request|ctx|event|_req|args)\\.(?:body|params|query|headers)";
@@ -475,7 +523,7 @@ export const CODE_RULES: CodeRule[] = [
     title: "jwt.decode() used instead of jwt.verify()", // ironward-ignore
     re: /\bjwt\s*\.\s*decode\s*\(/g, // ironward-ignore
     rationale: "jwt.decode does NOT check the signature — any attacker can forge a token and decode returns the forged payload.",
-    fix: "Use jwt.verify(token, secret, { algorithms: ['HS256'] }). Only use decode for inspecting unverified metadata (e.g. 'kid' lookup) and then verify.",
+    fix: "Use jwt.verify(token, secret, { algorithms: ['HS256'] }). Only use decode for inspecting unverified metadata (e.g. 'kid' lookup) and then verify.",  // ironward-ignore
   },
   {
     id: "cookie-no-samesite",
@@ -639,6 +687,33 @@ export const CODE_RULES: CodeRule[] = [
     rationale: "Stack traces leak file paths, dependency versions, and occasionally secrets pulled into error messages.",
     fix: "Log err.stack server-side. Send the client a generic 500 with a correlation id; no stack.",
   },
+  ...SUPABASE_RULES,
+  ...NEXTJS_RULES,
+  ...PRISMA_RULES,
+  ...TRPC_RULES,
+  ...CLERK_RULES,
+  ...FIREBASE_RULES,
+  ...STRIPE_RULES,
+  ...REACT_RULES,
+  ...INJECTION_RULES,
+  ...CRYPTOGRAPHY_RULES,
+  ...AUTHENTICATION_RULES,
+  ...NODEJS_RULES,
+  ...PYTHON_RULES,
+  ...JAVA_RULES,
+  ...GO_RULES,
+  ...API_SECURITY_RULES,
+  ...CLOUD_SECURITY_RULES,
+  ...PRISMA_ADVANCED_RULES,
+  ...WEBSOCKET_RULES,
+  ...GRAPHQL_RULES,
+  ...RATE_LIMITING_RULES,
+  ...MOBILE_SECURITY_RULES,
+  ...LOGGING_SECURITY_RULES,
+  ...DEP_SECURITY_RULES,
+  ...SECRETS_MGMT_RULES,
+  ...NODEJS_EXTENDED_RULES,
+  ...PYTHON_EXTENDED_RULES,
 ];
 
 export interface CodeFinding {
@@ -694,6 +769,17 @@ export function scanCodeRules(content: string): CodeFinding[] {
       if (seen.has(key)) continue;
       seen.add(key);
       if (hasIgnoreOn(line)) continue;
+      // negativePattern: a "BUT NOT IF" guard run against the matched text.
+      // If the regex match itself contains a known-safe pattern, suppress the finding.
+      // This is how rules express "match X, unless Y is also present in scope" without
+      // relying on JS variable-length lookbehind, which is unreliable with large windows.
+      if (rule.negativePattern) {
+        rule.negativePattern.lastIndex = 0;
+        if (rule.negativePattern.test(m[0])) {
+          if (m.index === rule.re.lastIndex) rule.re.lastIndex++;
+          continue;
+        }
+      }
       findings.push({
         ruleId: rule.id,
         severity: rule.severity,
@@ -715,5 +801,5 @@ export function scanCodeRules(content: string): CodeFinding[] {
 }
 
 export function severityRank(s: CodeSeverity): number {
-  return { critical: 4, high: 3, medium: 2, low: 1 }[s];
+  return { critical: 5, high: 4, medium: 3, low: 2, info: 1 }[s];
 }

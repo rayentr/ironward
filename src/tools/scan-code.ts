@@ -1,15 +1,38 @@
 import { readFile } from "node:fs/promises";
 import { scanCodeRules, severityRank, type CodeFinding, type CodeSeverity } from "../engines/code-rules.js";
+import { generateExploit, type Exploit } from "../engines/exploit-generator.js";
 
 export interface ScanCodeInput {
   files?: Array<{ path: string; content: string }>;
   paths?: string[];
   content?: string;
+  withExploits?: boolean;
 }
+
+export type CodeFindingWithExploit = CodeFinding & { exploit?: Exploit };
 
 export interface ScanCodeFileReport {
   path: string;
-  findings: CodeFinding[];
+  findings: CodeFindingWithExploit[];
+}
+
+function languageForPath(path: string): string {
+  const i = path.lastIndexOf(".");
+  const ext = i >= 0 ? path.slice(i + 1).toLowerCase() : "";
+  switch (ext) {
+    case "ts": case "tsx": return "typescript";
+    case "js": case "jsx": case "mjs": case "cjs": return "javascript";
+    case "py": return "python";
+    case "java": return "java";
+    case "go": return "go";
+    case "sql": return "sql";
+    default: return "javascript";
+  }
+}
+
+function decorate(findings: CodeFinding[], content: string, path: string, withExploits: boolean): CodeFindingWithExploit[] {
+  if (!withExploits) return findings;
+  return findings.map((f) => ({ ...f, exploit: generateExploit(f.ruleId, f, content, languageForPath(path), path) }));
 }
 
 export interface ScanCodeOutput {
@@ -39,14 +62,17 @@ function shouldSkip(path: string): boolean {
 
 export async function runScanCode(input: ScanCodeInput): Promise<ScanCodeOutput> {
   const reports: ScanCodeFileReport[] = [];
+  const withExploits = input.withExploits === true;
 
   if (input.content && !input.files && !input.paths) {
-    reports.push({ path: "<inline>", findings: scanCodeRules(input.content) });
+    const raw = scanCodeRules(input.content);
+    reports.push({ path: "<inline>", findings: decorate(raw, input.content, "<inline>", withExploits) });
   }
   if (input.files) {
     for (const f of input.files) {
       if (shouldSkip(f.path)) continue;
-      reports.push({ path: f.path, findings: scanCodeRules(f.content) });
+      const raw = scanCodeRules(f.content);
+      reports.push({ path: f.path, findings: decorate(raw, f.content, f.path, withExploits) });
     }
   }
   if (input.paths) {
@@ -54,14 +80,15 @@ export async function runScanCode(input: ScanCodeInput): Promise<ScanCodeOutput>
       if (shouldSkip(p)) continue;
       try {
         const content = await readFile(p, "utf8");
-        reports.push({ path: p, findings: scanCodeRules(content) });
+        const raw = scanCodeRules(content);
+        reports.push({ path: p, findings: decorate(raw, content, p, withExploits) });
       } catch {
         /* unreadable — skip */
       }
     }
   }
 
-  const bySeverity: Record<CodeSeverity, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+  const bySeverity: Record<CodeSeverity, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
   let total = 0;
   for (const r of reports) for (const f of r.findings) {
     bySeverity[f.severity]++;

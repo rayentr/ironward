@@ -129,7 +129,21 @@ test("runScanDeps includes typosquat intel findings", async () => {
   assert.deepEqual(kinds, ["typosquat", "typosquat"]);
 });
 
-test("runScanDeps includes malware intel findings", async () => {
+test("runScanDeps includes malware intel findings (exact tainted version → critical)", async () => {
+  const noVulns: Fetcher = async () => ({ ok: true, status: 200, json: async () => ({ vulns: [] }) });
+  const osv = new OsvClient(noVulns);
+  const content = JSON.stringify({
+    name: "test",
+    license: "MIT",
+    dependencies: { "event-stream": "3.3.6" },
+  });
+  const out = await runScanDeps({ manifests: [{ path: "package.json", content }] }, osv);
+  const malware = out.intel.find((i) => i.kind === "malware");
+  assert.ok(malware);
+  assert.equal(malware!.severity, "critical");
+});
+
+test("runScanDeps name-only malware match is HIGH (clean version of tainted name)", async () => {
   const noVulns: Fetcher = async () => ({ ok: true, status: 200, json: async () => ({ vulns: [] }) });
   const osv = new OsvClient(noVulns);
   const content = JSON.stringify({
@@ -139,8 +153,8 @@ test("runScanDeps includes malware intel findings", async () => {
   });
   const out = await runScanDeps({ manifests: [{ path: "package.json", content }] }, osv);
   const malware = out.intel.find((i) => i.kind === "malware");
-  assert.ok(malware);
-  assert.equal(malware!.severity, "critical");
+  assert.ok(malware, "expected a malware finding for name match");
+  assert.equal(malware!.severity, "high");
 });
 
 test("runScanDeps flags UNLICENSED packages", async () => {

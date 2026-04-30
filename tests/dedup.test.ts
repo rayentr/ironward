@@ -8,7 +8,7 @@ test("dedupByValue collapses same-value findings across files", () => {
   const in_ = [
     { path: "a.js", finding: { type: "aws_access_key", match: "AKIA1234567890ABCDEF", line: 10, column: 1 } as F },
     { path: "b.js", finding: { type: "aws_access_key", match: "AKIA1234567890ABCDEF", line: 20, column: 1 } as F },
-    { path: "c.js", finding: { type: "aws_access_key", match: "AKIA1234567890ABCDEF", line: 30, column: 1 } as F },
+    { path: "c.js", finding: { type: "aws_access_key", match: "AKIA1234567890ABCDEF", line: 30, column: 1 } as F }, 
   ];
   const out = dedupByValue(in_);
   assert.equal(out.length, 1);

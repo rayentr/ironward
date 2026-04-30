@@ -156,7 +156,7 @@ function isCommonNonSecret(s: string): boolean {
   if (/^[0-9a-f]{40}$/i.test(s)) return true;
   if (/^[0-9a-f]{64}$/i.test(s)) return true;
   // Locale / path / dotted identifier
-  if (/^[a-z]+([/._-][a-z0-9]+)+$/i.test(s) && !/[A-Z]/.test(s)) return true;
+  if (/^[a-z]+([/._-][a-z0-9]+)+$/i.test(s) && !/[A-Z]/.test(s)) return true;  // ironward-ignore
   // Pure hex CSS color or short hex number
   if (/^#?[0-9a-f]{3,8}$/i.test(s)) return true;
   return false;

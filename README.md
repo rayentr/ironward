@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/ironward"><img alt="npm" src="https://img.shields.io/npm/v/ironward?color=9af99a&label=npm"></a>
-  <a href="https://github.com/rayentr/ironward/actions"><img alt="tests" src="https://img.shields.io/badge/tests-286%2F286-9af99a"></a>
+  <a href="https://github.com/rayentr/ironward/actions"><img alt="tests" src="https://img.shields.io/badge/tests-2104%2F2104-9af99a"></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=ironward.ironward"><img alt="vscode" src="https://img.shields.io/visual-studio-marketplace/v/ironward.ironward?color=9af99a&label=VS%20Code"></a>
   <a href="./LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-9af99a"></a>
   <a href="https://www.npmjs.com/package/ironward"><img alt="downloads" src="https://img.shields.io/npm/dm/ironward?color=9af99a"></a>
@@ -41,8 +41,8 @@ ironward scan ./src
 | Tool | Runtime | What it finds |
 |------|---------|---------------|
 | `scan_for_secrets` | **Offline** | 665 pattern families — AWS, GCP, Azure, Stripe, PayPal, GitHub, OpenAI, Anthropic, Supabase, PlanetScale, Ethereum/Solana wallets, Firebase, + Shannon entropy |
-| `scan_code` | **Offline** | 61 static rules — `eval`, command injection, path traversal, weak crypto, SSRF, XXE, NoSQL/LDAP injection, template injection, timing-unsafe comparisons, Python-specific (pickle, yaml.load, subprocess shell=True) |
-| `scan_deps` | **Offline** | OSV.dev CVE lookup + typosquat detection + known-malware list + abandoned packages + license compliance |
+| `scan_code` | **Offline** | **374 static rules across 27 categories** — vibe-stack (Supabase RLS, Next.js, Prisma/Drizzle, tRPC, Clerk, Firebase, Stripe, React) + general injection/crypto/auth (Node, Python, Java, Go) + v3.0.0 additions: API security, cloud misconfiguration (AWS S3/IAM/RDS, GCS, Azure), WebSocket, GraphQL, rate-limiting, mobile (RN), logging hygiene, dep-security, secrets-mgmt. Each finding can carry a **proof-of-concept exploit** (PoC, CVSS, OWASP, CWE, fix) — pass `--exploit` (CLI) or `withExploits:true` (MCP). |
+| `scan_deps` | **Offline + opt-in API** | OSV.dev CVEs · curated **86-entry malware DB** with version-exact matching · typosquat (Levenshtein + combosquatting + homoglyph + scope-mimic, 200+ popular pkgs) · abandoned packages · license compliance. Opt-in: `--behavior` (install scripts + obfuscation in node_modules), `--reputation` (npm registry scoring 0-100, cached 24h), `--transitive` (lockfile dep graph → CVE attribution to direct dep), `--confusion` (scoped private packages on public npm). `--full` enables all four. |
 | `scan_url` | **Offline** | Letter-graded web scan — headers, CORS, cookies, exposed `.env` / `.git`, source maps, admin panels, API docs, Supabase/Firebase keys, TLS expiry |
 | `scan_docker` | **Offline** | Dockerfile + docker-compose — root user, `privileged:true`, sensitive host mounts, secrets in ENV/ARG, `:latest` tags, `curl \| sh`, exposed SSH/DB ports |
 | `scan_k8s` | **Offline** | Kubernetes manifests — privileged containers, `hostNetwork`, dangerous capabilities (SYS_ADMIN, ALL), missing resource limits, secrets in env literals, default service accounts |
@@ -197,8 +197,32 @@ Full configuration and outputs in [github-action/README.md](./github-action/READ
 Scanning
   ironward scan <path>              run every offline scanner (auto-detects IaC files)
   ironward scan-secrets <path>...   665 pattern families
-  ironward scan-code <path>...      61 static analysis rules
-  ironward scan-deps <path>...      OSV CVE + typosquat / malware / license
+  ironward scan-code <path>...      300 static analysis rules (15 categories)
+  ironward scan-code <path> --exploit  attach a PoC exploit (CVSS, OWASP, CWE, fix) to each finding
+  ironward scan-deps <path>...      OSV CVE + typosquat (4 modes) / 88-entry malware DB / license
+  ironward scan-deps <path> --full     adds: behavior + reputation + transitive + dep-confusion
+
+Team integrations (v2.4.0+):
+  ironward config                       show current configuration (secrets redacted)
+  ironward slack-setup --webhook URL    Block Kit alerts to a Slack channel
+  ironward linear-setup --api-key KEY   auto-create Linear issues for critical/high findings
+  ironward jira-setup                   same, but for Jira (REST v3 + ADF)
+  ironward email-setup                  weekly/daily HTML digest via Resend
+  ironward badge --update-readme        Shields.io security score badge in README
+  ironward api-server                   REST endpoints (/api/findings, /api/score, /api/badge.svg, …)
+
+Project + offline (v2.5.0+):
+  ironward init                         scaffold .ironward.json from detected stack
+  ironward doctor                       diagnose every part of the install (offline tools, AI, Ollama, integrations, hooks)
+  ironward benchmark                    run the 73-case detection benchmark (58 positive + 15 negative fixtures)
+  ironward scan . --offline             skip network-bound intel (reputation, dep-confusion fetches)
+  ironward scan . --no-network          stricter — also skip OSV.dev. Pure local rules + bundled malware DB.
+
+Local AI via Ollama:
+  Install Ollama from ollama.com and `ollama pull deepseek-coder:6.7b` —
+  the 5 AI tools (scan_auth_logic, scan_sqli, scan_xss, scan_idor, fix_and_pr)
+  run fully offline with no API key. Per-model prompt tiers (opus/sonnet/haiku)
+  adapt prompt length and JSON-strictness to the model's reliability.
   ironward scan-url <https-url>     security headers, TLS, exposed files
   ironward scan-docker <path>...    Dockerfile + docker-compose
   ironward scan-k8s <path>...       Kubernetes manifests
@@ -338,7 +362,7 @@ node dist/bin.js scan ./src
 Good first issues:
 
 - Add a new secret-pattern family — edit [`patterns/secrets.json`](./patterns/secrets.json) and add a fixture to [`tests/fixtures/categories/`](./tests/fixtures/categories).
-- Add a static-analysis rule — edit [`src/engines/code-rules.ts`](./src/engines/code-rules.ts).
+- Add a static-analysis rule — edit the matching file in [`src/rules/`](./src/rules/) (e.g. `supabase.ts`, `nextjs.ts`, `prisma.ts`, `nodejs.ts`) and it gets picked up by [`src/engines/code-rules.ts`](./src/engines/code-rules.ts) automatically.
 - Teach `scan_url` a new probe — [`src/engines/url-scanner.ts`](./src/engines/url-scanner.ts).
 
 Every new pattern/rule must ship with a test. The scanner must stay self-clean (`node dist/bin.js scan ./src` returns 0 findings).

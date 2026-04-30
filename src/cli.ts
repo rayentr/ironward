@@ -3,7 +3,7 @@ import { writeSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { homedir } from "node:os";
 import { createRequire } from "node:module";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { formatReport, runScanSecrets, type FileReport } from "./tools/scan-secrets.js";
 import { formatDepsReport, runScanDeps, parseManifest } from "./tools/scan-deps.js";
 import { runScanUrl, formatUrlReport } from "./tools/scan-url.js";
@@ -14,6 +14,23 @@ import { runScanGithub, formatGithubReport, detectGithubWorkflow } from "./tools
 import { runScanInfra, formatInfraReport, detectInfraKind } from "./tools/scan-infra.js";
 import { scanText } from "./engines/secret-engine.js";
 import { scanCodeRules, severityRank as codeSeverityRank } from "./engines/code-rules.js";
+import { generateExploit, formatExploitBlock } from "./engines/exploit-generator.js";
+
+function languageForPath(path: string): string {
+  const i = path.lastIndexOf(".");
+  const ext = i >= 0 ? path.slice(i + 1).toLowerCase() : "";
+  switch (ext) {
+    case "ts": case "tsx": return "typescript";
+    case "js": case "jsx": case "mjs": case "cjs": return "javascript";
+    case "py": return "python";
+    case "java": return "java";
+    case "go": return "go";
+    case "rb": return "ruby";
+    case "php": return "php";
+    case "sql": return "sql";
+    default: return "javascript";
+  }
+}
 import { record, fingerprintFor, isRecordingEnabled } from "./engines/recorder.js";
 import { IgnoreMatcher, DEFAULT_IGNORE_PATTERNS } from "./engines/ignore.js";
 import { ScanCache, sha256 } from "./engines/scan-cache.js";
@@ -42,6 +59,24 @@ Scanning:
   ironward scan-k8s <path>...       Kubernetes manifest security
   ironward scan-infra <path>...     Terraform + CloudFormation security
   ironward scan-github <path>...    GitHub Actions workflow security
+
+Project + diagnostics:
+  ironward init                     write .ironward.json with sensible defaults for the detected stack
+  ironward doctor                   diagnose Ironward setup (offline tools, AI, Ollama, integrations, hooks)
+  ironward benchmark                run the detection benchmark (50+ vulnerable fixtures + 15 negative)
+  ironward explain <rule-id>        full explanation of any rule (pattern, fix, PoC, CVSS, OWASP, CWE)
+  ironward explain --list           list every rule, grouped by category
+  ironward explain --category X     list rules in a single category
+  ironward diff <git-ref>           show NEW + RESOLVED security findings since the given ref
+
+Team integrations:
+  ironward config                   show current configuration (secrets redacted)
+  ironward slack-setup --webhook URL [--channel #x --threshold high --mode realtime] [--test]
+  ironward linear-setup --api-key KEY [--team-id ID --project-id ID --threshold high --label security]
+  ironward jira-setup --url HOST --email E --api-token T --project KEY [--issue-type Bug --threshold high]
+  ironward email-setup --api-key RESEND --from ADDR --to ADDR1,ADDR2 [--frequency weekly --send-time 09:00]
+  ironward badge [--format url|markdown|html|svg|json] [--score N] [--update-readme]
+  ironward api-server [--port 7373 --host 127.0.0.1]   serve REST API for dashboard / external tools
 
 Provider:
   ironward login                    pick AI provider (Anthropic, OpenAI, Gemini, Groq, Ollama)
@@ -80,6 +115,21 @@ Cache:
 Confidence + dedup:
   --verbose                         include low-confidence findings (40-59)
   --no-dedup                        keep cross-file duplicates as separate findings
+
+Offline mode (v2.5.0+):
+  --offline                         skip network-bound intel (reputation, dep-confusion fetches)
+  --no-network                      stricter — also skip OSV.dev CVE lookup. Pure local rules + DB.
+
+Attack simulation (scan-code):
+  --exploit                         attach a PoC, CVSS, OWASP, CWE, fix to each finding
+  --no-exploit                      hide PoC (default)
+
+Supply-chain intel (scan-deps, opt-in):
+  --behavior                        scan node_modules for install scripts + obfuscation + suspicious imports
+  --reputation                      score each package 0-100 against npm registry (cached 24h)
+  --transitive                      build dep graph from package-lock.json; tag CVEs with the direct dep that pulled them in
+  --confusion                       check scoped private packages against public npm (dependency-confusion attack surface)
+  --full                            enable all four supply-chain checks
 
 Ignore rules (applied to every scan):
   - .gitignore and .ironwardignore (if present) at the project root
@@ -310,12 +360,26 @@ export function parseArgs(args: string[]): {
   verbose: boolean;
   noDedup: boolean;
   webhook: string | null;
+  exploit: boolean;
+  behavior: boolean;
+  reputation: boolean;
+  transitive: boolean;
+  confusion: boolean;
+  offline: boolean;
+  noNetwork: boolean;
   rest: string[];
 } {
   let format: OutputFormat = "text";
   let noCache = false;
   let verbose = false;
   let noDedup = false;
+  let exploit = false;
+  let behavior = false;
+  let reputation = false;
+  let transitive = false;
+  let confusion = false;
+  let offline = false;
+  let noNetwork = false;
   const preRest: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -343,14 +407,23 @@ export function parseArgs(args: string[]): {
     if (a === "--no-cache") { noCache = true; continue; }
     if (a === "--verbose" || a === "-v") { verbose = true; continue; }
     if (a === "--no-dedup") { noDedup = true; continue; }
+    if (a === "--exploit") { exploit = true; continue; }
+    if (a === "--no-exploit") { exploit = false; continue; }
+    if (a === "--behavior") { behavior = true; continue; }
+    if (a === "--reputation") { reputation = true; continue; }
+    if (a === "--transitive") { transitive = true; continue; }
+    if (a === "--confusion") { confusion = true; continue; }
+    if (a === "--full") { behavior = true; reputation = true; transitive = true; confusion = true; continue; }
+    if (a === "--offline") { offline = true; continue; }
+    if (a === "--no-network") { noNetwork = true; offline = true; continue; }
     preRest.push(a);
   }
   const { scope, rest } = parseScopeFromArgs(preRest);
   const webhook = (preRest as any)._webhook ?? null;
-  return { format, scope, noCache, verbose, noDedup, webhook, rest };
+  return { format, scope, noCache, verbose, noDedup, webhook, exploit, behavior, reputation, transitive, confusion, offline, noNetwork, rest };
 }
 
-interface ScanOpts { verbose?: boolean; noDedup?: boolean; webhook?: string | null }
+interface ScanOpts { verbose?: boolean; noDedup?: boolean; webhook?: string | null; exploit?: boolean }
 
 async function runSecretsCli(targets: string[], format: OutputFormat = "text", scope: GitScope | null = null, opts: ScanOpts = {}): Promise<number> {
   if (targets.length === 0 && !scope) {
@@ -585,13 +658,14 @@ async function runCodeCli(targets: string[], format: OutputFormat = "text", scop
   const bySeverity: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
   let done = 0;
 
+  const wantExploits = opts.exploit === true;
   const reports = await mapConcurrent(
     files,
     defaultConcurrency(),
     async (f) => {
       const rel = relative(process.cwd(), f);
       let content = "";
-      try { content = await readFile(f, "utf8"); } catch { return { path: rel, findings: [] as ReturnType<typeof scanCodeRules> }; }
+      try { content = await readFile(f, "utf8"); } catch { return { path: rel, findings: [] as Array<ReturnType<typeof scanCodeRules>[number] & { exploit?: ReturnType<typeof generateExploit> }> }; }
       const contentHash = sha256(content).slice(0, 16);
       let findings = cache.lookup<ReturnType<typeof scanCodeRules>[number]>(f, "scan_code", contentHash);
       if (findings === null) {
@@ -600,7 +674,10 @@ async function runCodeCli(targets: string[], format: OutputFormat = "text", scop
       } else {
         cacheHits++;
       }
-      return { path: rel, findings };
+      const decorated = wantExploits
+        ? findings.map((fnd) => ({ ...fnd, exploit: generateExploit(fnd.ruleId, fnd, content, languageForPath(rel), rel) }))
+        : findings;
+      return { path: rel, findings: decorated };
     },
     (report) => {
       done++;
@@ -610,6 +687,9 @@ async function runCodeCli(targets: string[], format: OutputFormat = "text", scop
         const sorted = [...report.findings].sort((a, b) => codeSeverityRank(b.severity) - codeSeverityRank(a.severity) || a.line - b.line);
         for (const fnd of sorted) {
           console.log(`[${fnd.severity.toUpperCase()}] ${report.path}:L${fnd.line}  ${fnd.title}  (${fnd.ruleId})`);
+          if (wantExploits && (fnd as any).exploit) {
+            console.log(formatExploitBlock((fnd as any).exploit));
+          }
         }
       }
       progress.update(done, report.path);
@@ -625,16 +705,34 @@ async function runCodeCli(targets: string[], format: OutputFormat = "text", scop
   };
 
   const normalizedCode: NormalizedFinding[] = reports.flatMap((r) =>
-    r.findings.map((f) => ({
-      ruleId: f.ruleId,
-      severity: f.severity,
-      title: f.title,
-      description: f.rationale,
-      file: r.path,
-      line: f.line,
-      column: f.column,
-      tool: "scan_code",
-    })),
+    r.findings.map((f) => {
+      const ex = (f as any).exploit as ReturnType<typeof generateExploit> | undefined;
+      return {
+        ruleId: f.ruleId,
+        severity: f.severity,
+        title: f.title,
+        description: f.rationale,
+        file: r.path,
+        line: f.line,
+        column: f.column,
+        tool: "scan_code",
+        ...(ex
+          ? {
+              exploit: {
+                title: ex.title,
+                poc: ex.poc,
+                impact: ex.impact,
+                cvss: ex.cvss,
+                cvssVector: ex.cvssVector,
+                owasp: ex.owasp,
+                cwe: ex.cwe,
+                remediation: ex.remediation,
+                references: ex.references,
+              },
+            }
+          : {}),
+      };
+    }),
   );
 
   if (format === "json") {
@@ -888,7 +986,11 @@ async function runInfraCli(targets: string[], format: OutputFormat = "text"): Pr
   return out.summary.bySeverity.critical > 0 || out.summary.bySeverity.high > 0 ? 2 : 1;
 }
 
-async function runDepsCli(targets: string[], format: OutputFormat = "text"): Promise<number> {
+async function runDepsCli(
+  targets: string[],
+  format: OutputFormat = "text",
+  opts: { behavior?: boolean; reputation?: boolean; transitive?: boolean; confusion?: boolean } = {},
+): Promise<number> {
   if (targets.length === 0) {
     if (format === "json") writeStdoutSync(JSON.stringify({ tool: "scan_deps", error: "no paths provided" }) + "\n");
     else console.error("ironward scan-deps: no paths provided.");
@@ -913,7 +1015,56 @@ async function runDepsCli(targets: string[], format: OutputFormat = "text"): Pro
     else console.log("No supported manifests (package.json, requirements.txt, Pipfile.lock) found.");
     return 0;
   }
-  const out = await runScanDeps({ paths });
+  const lockfiles: Array<{ path: string; content: string }> = [];
+  let npmrc: string | undefined;
+  let nodeModulesDir: string | undefined;
+  if (opts.transitive || opts.behavior || opts.confusion) {
+    const dirs = new Set(paths.map((p) => dirname(p)));
+    for (const d of dirs) {
+      if (opts.transitive) {
+        for (const lockName of ["package-lock.json", "npm-shrinkwrap.json"]) {
+          try {
+            const content = await readFile(resolve(d, lockName), "utf8");
+            lockfiles.push({ path: resolve(d, lockName), content });
+            break;
+          } catch { /* not present */ }
+        }
+      }
+      if (opts.confusion) {
+        try { npmrc = await readFile(resolve(d, ".npmrc"), "utf8"); } catch { /* none */ }
+      }
+      if (opts.behavior && !nodeModulesDir) {
+        const candidate = resolve(d, "node_modules");
+        const st = await stat(candidate).catch(() => null);
+        if (st && st.isDirectory()) nodeModulesDir = candidate;
+      }
+    }
+  }
+  const noNet = process.env.IRONWARD_NO_NETWORK === "1";
+  const offlineMode = process.env.IRONWARD_OFFLINE === "1";
+  // Build an OSV client that returns no vulns when --no-network. The OsvClient already
+  // fails open on network errors, but skipping the call avoids the latency on offline runs.
+  let osvClient: import("./engines/osv-client.js").OsvClient | undefined;
+  if (noNet) {
+    const { OsvClient } = await import("./engines/osv-client.js");
+    osvClient = new OsvClient(async () => ({ ok: true, status: 200, json: async () => ({ vulns: [] }) }));
+  }
+  const out = await runScanDeps(
+    {
+      paths,
+      lockfiles,
+      npmrc,
+      nodeModulesDir,
+      withBehavior: opts.behavior,
+      withReputation: opts.reputation && !noNet,
+      withTransitive: opts.transitive,
+      withConfusion: opts.confusion && !noNet,
+    },
+    osvClient,
+  );
+  if (offlineMode || noNet) {
+    if (format !== "json") console.log(`(offline mode${noNet ? " + --no-network" : ""}: ${noNet ? "OSV / npm registry / dep-confusion fetches skipped" : "network-bound intel skipped"})`);
+  }
   if (format === "json") {
     writeStdoutSync(JSON.stringify({ tool: "scan_deps", ...out }) + "\n");
   } else {
@@ -939,6 +1090,26 @@ export async function runCli(argv: string[]): Promise<number> {
   }
 
   const cmd = args[0];
+
+  // Integration setup commands have their own flag namespaces (--webhook means a Slack URL,
+  // --format means a badge format, etc.) — bypass the global parser to avoid clashes.
+  const INTEGRATION_COMMANDS = new Set([
+    "slack-setup", "linear-setup", "jira-setup", "email-setup", "badge", "api-server", "config",
+  ]);
+  if (INTEGRATION_COMMANDS.has(cmd)) {
+    const integArgs = args.slice(1);
+    const { runSlackSetup, runLinearSetup, runJiraSetup, runEmailSetup, runBadge, runApiServer, runConfig } = await import("./commands/integrations.js");
+    switch (cmd) {
+      case "slack-setup": return await runSlackSetup(integArgs);
+      case "linear-setup": return await runLinearSetup(integArgs);
+      case "jira-setup": return await runJiraSetup(integArgs);
+      case "email-setup": return await runEmailSetup(integArgs);
+      case "badge": return await runBadge(integArgs);
+      case "api-server": return await runApiServer(integArgs);
+      case "config": return await runConfig(integArgs);
+    }
+  }
+
   let parsed: ReturnType<typeof parseArgs>;
   try {
     parsed = parseArgs(args.slice(1));
@@ -946,8 +1117,10 @@ export async function runCli(argv: string[]): Promise<number> {
     console.error((err as Error).message);
     return 2;
   }
-  const { format, scope, noCache, verbose, noDedup, webhook, rest } = parsed;
+  const { format, scope, noCache, verbose, noDedup, webhook, exploit, behavior, reputation, transitive, confusion, offline, noNetwork, rest } = parsed;
   if (noCache) process.env.IRONWARD_NO_CACHE = "1";
+  if (offline) process.env.IRONWARD_OFFLINE = "1";
+  if (noNetwork) process.env.IRONWARD_NO_NETWORK = "1";
 
   switch (cmd) {
     case "-h":
@@ -966,9 +1139,9 @@ export async function runCli(argv: string[]): Promise<number> {
     case "scan":
       return await runFullScanCli(rest, format, scope, { verbose, noDedup, webhook });
     case "scan-code":
-      return await runCodeCli(rest, format, scope, { verbose, noDedup, webhook });
+      return await runCodeCli(rest, format, scope, { verbose, noDedup, webhook, exploit });
     case "scan-deps":
-      return await runDepsCli(rest, format);
+      return await runDepsCli(rest, format, { behavior, reputation, transitive, confusion });
     case "scan-url":
       return await runUrlCli(rest, format);
     case "scan-docker":
@@ -1007,6 +1180,29 @@ export async function runCli(argv: string[]): Promise<number> {
       const { runUninstallHooks } = await import("./commands/hooks.js");
       return await runUninstallHooks();
     }
+    case "doctor": {
+      const { runDoctor } = await import("./commands/doctor.js");
+      return await runDoctor();
+    }
+    case "init": {
+      const { runInit } = await import("./commands/init.js");
+      return await runInit(rest);
+    }
+    case "benchmark": {
+      const { runBenchmark } = await import("./commands/benchmark.js");
+      return await runBenchmark(rest);
+    }
+    case "explain": {
+      const { runExplain } = await import("./commands/explain.js");
+      return await runExplain(rest);
+    }
+    case "diff": {
+      const { runDiff } = await import("./commands/diff.js");
+      return await runDiff(rest);
+    }
+    // Integration commands (slack-setup, linear-setup, jira-setup, email-setup,
+    // badge, api-server, config) are handled by an earlier branch that bypasses
+    // parseArgs — they have their own flag namespaces.
     default:
       console.error(`Unknown command: ${args[0]}`);
       console.error("Run `ironward --help` for usage.");

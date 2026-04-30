@@ -201,9 +201,9 @@ export const INFRA_RULES: InfraRule[] = [
     id: "tf-gcs-all-users",
     severity: "critical",
     category: "access-control",
-    title: "GCS bucket grants access to allUsers / allAuthenticatedUsers",
-    re: /(?:role_entity\s*=\s*\[\s*"READER:allUsers"|member\s*=\s*"all(?:Authenticated)?Users"|members\s*=\s*\[\s*"all(?:Authenticated)?Users")/i,
-    rationale: "`allUsers` is the GCP equivalent of \"public internet.\" `allAuthenticatedUsers` is any Google account holder on earth — not much better.",
+    title: "GCS bucket grants access to allUsers / allAuthenticatedUsers",  // ironward-ignore
+    re: /(?:role_entity\s*=\s*\[\s*"READER:allUsers"|member\s*=\s*"all(?:Authenticated)?Users"|members\s*=\s*\[\s*"all(?:Authenticated)?Users")/i,  // ironward-ignore
+    rationale: "`allUsers` is the GCP equivalent of \"public internet.\" `allAuthenticatedUsers` is any Google account holder on earth — not much better.",  // ironward-ignore
     fix: "Grant access to specific service accounts, groups, or domains. Turn on Uniform Bucket-Level Access and enforce Org Policy `iam.allowedPolicyMemberDomains`.",
     appliesTo: TERRAFORM,
   },

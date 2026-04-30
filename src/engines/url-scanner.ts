@@ -550,7 +550,7 @@ export class NodeTlsProber implements TlsProber {
     const tls = await import("node:tls");
     return new Promise((resolve) => {
       const socket = tls.connect(
-        { host: hostname, port, servername: hostname, rejectUnauthorized: false, timeout: 5000 },
+        { host: hostname, port, servername: hostname, rejectUnauthorized: false, timeout: 5000 },  // ironward-ignore
         () => {
           const cert = socket.getPeerCertificate();
           socket.end();

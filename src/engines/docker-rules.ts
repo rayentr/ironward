@@ -135,7 +135,7 @@ export const DOCKER_RULES: DockerRule[] = [
     severity: "medium",
     category: "build",
     title: "COPY . . ships everything — check for secret-containing files",
-    re: /^COPY\s+(?:--[\w=-]+\s+)*\.\s+\.\s*$/im,
+    re: /^COPY\s+(?:--[\w=-]+\s+)*\.\s+\.\s*$/im,  // ironward-ignore
     rationale: "`COPY . .` happily copies `.env`, `.git`, node_modules, local build artifacts, SSH keys, and editor backup files into the image.",
     fix: "Add a strict `.dockerignore` (at minimum: `.env*`, `.git`, `node_modules`, `*.pem`, `*.key`, `id_rsa*`). Prefer copying explicit paths.",
     appliesTo: DOCKERFILE,
@@ -194,7 +194,7 @@ export const DOCKER_RULES: DockerRule[] = [
     severity: "high",
     category: "network",
     title: "Container exposes SSH (port 22)",
-    re: /^EXPOSE\s+(?:[0-9/]+\s+)*(?:22|22\/tcp)\b/im,
+    re: /^EXPOSE\s+(?:[0-9/]+\s+)*(?:22|22\/tcp)\b/im,  // ironward-ignore
     rationale: "SSH inside a container is almost always an anti-pattern — it duplicates host access control and tends to ship with default credentials or static keys.",
     fix: "Remove the SSH daemon. Use `docker exec` or `kubectl exec` for interactive access.",
     appliesTo: DOCKERFILE,
@@ -204,7 +204,7 @@ export const DOCKER_RULES: DockerRule[] = [
     severity: "medium",
     category: "network",
     title: "Container EXPOSEs a database port directly",
-    re: /^EXPOSE\s+(?:[0-9/]+\s+)*(?:3306|5432|27017|6379|9200|1433|11211)(?:\/tcp)?\b/im,
+    re: /^EXPOSE\s+(?:[0-9/]+\s+)*(?:3306|5432|27017|6379|9200|1433|11211)(?:\/tcp)?\b/im,  // ironward-ignore
     rationale: "Exposing DB ports at the image level encourages direct public mapping — auth misconfig turns into a public-internet breach quickly.",
     fix: "Keep DB traffic on an internal Docker network. Publish only your HTTP entry point.",
     appliesTo: DOCKERFILE,

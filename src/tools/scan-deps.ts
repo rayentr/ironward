@@ -8,13 +8,22 @@ import {
 } from "../engines/osv-client.js";
 import {
   detectTyposquat,
+  detectAdvancedTyposquat,
   detectKnownMalware,
   classifyAbandonment,
   classifyLicense,
+  loadMalwareDb,
+  lookupMalware,
+  parsePackageLock,
+  findTransitiveParents,
+  buildDependencyGraph as buildDependencyGraphImport,
   NpmRegistryFetcher,
   type RegistryFetcher,
   type DepIntelFinding,
 } from "../engines/dep-intel.js";
+import { analyzeBehavior } from "../engines/behavior-analyzer.js";
+import { CachingNpmReputationFetcher, scorePackage, scoreToFinding, type ReputationFetcher } from "../engines/reputation-scorer.js";
+import { detectDepConfusion, HttpConfusionFetcher, type ConfusionFetcher } from "../engines/dep-confusion.js";
 
 export type DepSeverity = "critical" | "high" | "medium" | "low" | "unknown";
 
@@ -44,7 +53,19 @@ export interface ScanDepsInput {
   paths?: string[];
   manifests?: Array<{ path: string; content: string }>;
   lockfiles?: Array<{ path: string; content: string }>;
+  /** Optional .npmrc body — used by dep-confusion check to determine private-scope routing. */
+  npmrc?: string;
+  /** node_modules root for behavior analysis (reads top-level files). */
+  nodeModulesDir?: string;
   checkAbandoned?: boolean;
+  /** Run behavior analysis (install scripts + suspicious imports + obfuscation). */
+  withBehavior?: boolean;
+  /** Run reputation scoring against npm registry (with cache). */
+  withReputation?: boolean;
+  /** Build dep graph from lockfile and tag CVEs with which direct dep pulled them in. */
+  withTransitive?: boolean;
+  /** Run dep-confusion detection (scoped packages on public npm). */
+  withConfusion?: boolean;
 }
 
 export interface ScanDepsOutput {
@@ -143,10 +164,16 @@ export function parseManifest(path: string, content: string): DepDeclaration[] {
   return [];
 }
 
+export interface ScanDepsExtras {
+  reputationFetcher?: ReputationFetcher;
+  confusionFetcher?: ConfusionFetcher;
+}
+
 export async function runScanDeps(
   input: ScanDepsInput,
   osv: OsvClient = new OsvClient(),
   registry: RegistryFetcher | null = null,
+  extras: ScanDepsExtras = {},
 ): Promise<ScanDepsOutput> {
   const declarations: DepDeclaration[] = [];
   const manifestContents = new Map<string, string>();
@@ -169,6 +196,30 @@ export async function runScanDeps(
     }
   }
 
+  // Build dep graph from lockfile if requested
+  let depGraph: ReturnType<typeof buildDependencyGraphImport> | null = null;
+  if (input.withTransitive && input.lockfiles && input.lockfiles.length > 0) {
+    for (const lf of input.lockfiles) {
+      depGraph = buildDependencyGraphImport(lf.content);
+      // Add all reachable transitive deps to declarations so OSV scans them too.
+      for (const [name, paths] of depGraph.paths) {
+        if (depGraph.directDeps.has(name)) continue;
+        // Pull the version from the lockfile if available
+        try {
+          const data = JSON.parse(lf.content) as { packages?: Record<string, { version?: string }> };
+          const pkg = data.packages?.[`node_modules/${name}`];
+          const version = pkg?.version;
+          if (version) {
+            declarations.push({ name, version, ecosystem: "npm", source: lf.path });
+          }
+        } catch { /* ignore */ }
+        // Suppress unused-var warning by referencing paths
+        void paths;
+      }
+      break; // first lockfile only
+    }
+  }
+
   const unique = new Map<string, DepDeclaration>();
   for (const d of declarations) unique.set(`${d.ecosystem}:${d.name}@${d.version}`, d);
 
@@ -181,6 +232,7 @@ export async function runScanDeps(
       continue;
     }
     for (const v of vulns) {
+      const transitivePath = depGraph?.paths.get(dep.name);
       findings.push({
         package: dep.name,
         version: dep.version,
@@ -192,34 +244,127 @@ export async function runScanDeps(
         fixedIn: fixedVersions(v, dep.ecosystem, dep.name),
         references: (v.references ?? []).map((r) => r.url ?? "").filter(Boolean),
         source: dep.source,
+        ...(transitivePath && transitivePath.length > 0 && !depGraph?.directDeps.has(dep.name)
+          ? { pulledInBy: transitivePath }
+          : {}),
       });
     }
   }
 
   findings.sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || a.package.localeCompare(b.package));
 
+  // Prime the rich malware DB so lookupMalware works synchronously below.
+  await loadMalwareDb();
+
   const intel: DepIntelFinding[] = [];
   for (const dep of unique.values()) {
-    // Typosquat (npm only)
-    if (dep.ecosystem === "npm") {
-      const match = detectTyposquat(dep.name);
-      if (match) {
-        intel.push({
-          package: dep.name, version: dep.version, ecosystem: dep.ecosystem, source: dep.source,
-          kind: "typosquat", severity: "high",
-          summary: `"${dep.name}" is one edit away from popular package "${match}" — likely typosquat.`,
-          evidence: `Levenshtein distance ≤ 2 from ${match}`,
-        });
-      }
-      if (detectKnownMalware(dep.name, dep.ecosystem)) {
-        intel.push({
-          package: dep.name, version: dep.version, ecosystem: dep.ecosystem, source: dep.source,
-          kind: "malware", severity: "critical",
-          summary: `"${dep.name}" appears on the known-malware list. Remove it immediately.`,
-          references: ["https://socket.dev/advisories", "https://github.com/advisories"],
-        });
-      }
+    if (dep.ecosystem !== "npm") continue;
+    // Advanced typosquat (edit-distance + combosquat + homoglyph + scope-mimic)
+    const adv = detectAdvancedTyposquat(dep.name);
+    if (adv) {
+      const kindLabel: Record<typeof adv.kind, string> = {
+        "edit-distance": "Levenshtein distance ≤ 2 from",
+        "combosquat": "combosquatting variant of",
+        "homoglyph": "homoglyph / lookalike of",
+        "scope-mimic": "unscoped mimic of scoped package",
+      };
+      intel.push({
+        package: dep.name, version: dep.version, ecosystem: dep.ecosystem, source: dep.source,
+        kind: "typosquat", severity: "high",
+        summary: `"${dep.name}" looks like a typosquat of "${adv.match}" (${adv.kind}).`,
+        evidence: `${kindLabel[adv.kind]} ${adv.match}`,
+      });
     }
+    // Rich malware DB: prefer exact-version match (CRITICAL) over name-only (HIGH).
+    const malware = lookupMalware(dep.name, dep.version, dep.ecosystem);
+    if (malware) {
+      intel.push({
+        package: dep.name, version: dep.version, ecosystem: dep.ecosystem, source: dep.source,
+        kind: "malware",
+        severity: malware.exact ? "critical" : "high",
+        summary: malware.exact
+          ? `"${dep.name}@${dep.version}" is on the known-malware list. ${malware.entry.reason}`
+          : `"${dep.name}" had a previously malicious version (${malware.entry.version ?? "unspecified"}) — verify this version is clean. Reason: ${malware.entry.reason}`,
+        evidence: `Source: ${malware.entry.source}${malware.entry.date ? ` (${malware.entry.date})` : ""}`,
+        references: ["https://socket.dev/advisories", "https://github.com/advisories"],
+      });
+    } else if (detectKnownMalware(dep.name, dep.ecosystem)) {
+      // Backwards-compat: hardcoded set still flags name matches not in JSON DB.
+      intel.push({
+        package: dep.name, version: dep.version, ecosystem: dep.ecosystem, source: dep.source,
+        kind: "malware", severity: "critical",
+        summary: `"${dep.name}" appears on the known-malware list. Remove it immediately.`,
+        references: ["https://socket.dev/advisories", "https://github.com/advisories"],
+      });
+    }
+  }
+
+  // Behavior analysis — opt-in. Requires nodeModulesDir on disk.
+  if (input.withBehavior && input.nodeModulesDir) {
+    const { readFile, readdir } = await import("node:fs/promises");
+    const { join, dirname } = await import("node:path");
+    void dirname;
+    for (const dep of unique.values()) {
+      if (dep.ecosystem !== "npm") continue;
+      const pkgDir = join(input.nodeModulesDir, dep.name);
+      let pkgJson = "";
+      try { pkgJson = await readFile(join(pkgDir, "package.json"), "utf8"); } catch { continue; }
+      const topFiles: Array<{ path: string; content: string }> = [];
+      try {
+        const entries = await readdir(pkgDir, { withFileTypes: true });
+        for (const e of entries) {
+          if (!e.isFile()) continue;
+          if (!e.name.endsWith(".js") || e.name.endsWith(".min.js")) continue;
+          try {
+            const content = await readFile(join(pkgDir, e.name), "utf8");
+            if (content.length > 200_000) continue;
+            topFiles.push({ path: e.name, content });
+          } catch { /* skip */ }
+        }
+      } catch { /* no readable dir — skip */ }
+      const behaviorFindings = analyzeBehavior({
+        packageName: dep.name,
+        packageVersion: dep.version,
+        source: dep.source,
+        packageJson: pkgJson,
+        topLevelFiles: topFiles,
+      });
+      intel.push(...behaviorFindings);
+    }
+  }
+
+  // Reputation scoring — opt-in. Uses provided fetcher or defaults to caching HTTP fetcher.
+  if (input.withReputation) {
+    const fetcher: ReputationFetcher = extras.reputationFetcher ?? new CachingNpmReputationFetcher();
+    const npmDeps = [...unique.values()].filter((d) => d.ecosystem === "npm");
+    // Bounded concurrency
+    const CONC = 10;
+    let i = 0;
+    const workers = Array.from({ length: Math.min(CONC, npmDeps.length) }, async () => {
+      while (i < npmDeps.length) {
+        const dep = npmDeps[i++];
+        const meta = await fetcher.fetch(dep.name);
+        if (!meta) continue;
+        const score = scorePackage(meta);
+        const f = scoreToFinding(dep.name, dep.version, dep.source, score);
+        if (f) intel.push(f);
+      }
+    });
+    await Promise.all(workers);
+  }
+
+  // Dependency confusion — opt-in.
+  if (input.withConfusion) {
+    const fetcher: ConfusionFetcher = extras.confusionFetcher ?? new HttpConfusionFetcher();
+    const pkgList = [...unique.values()]
+      .filter((d) => d.ecosystem === "npm")
+      .map((d) => ({ name: d.name, version: d.version, source: d.source }));
+    const confusion = await detectDepConfusion({
+      packages: pkgList,
+      npmrc: input.npmrc,
+      fetcher,
+    });
+    intel.push(...confusion);
   }
 
   // Abandoned check — only if registry fetcher available and user opts in.

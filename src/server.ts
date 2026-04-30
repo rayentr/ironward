@@ -19,7 +19,7 @@ import { MissingApiKeyError } from "./engines/claude-client.js";
 import { MissingGitHubTokenError } from "./engines/github-client.js";
 
 const server = new McpServer(
-  { name: "ironward", version: "2.0.0" },
+  { name: "ironward", version: "3.2.0" },
   { capabilities: { tools: {} } },
 );
 
@@ -280,6 +280,7 @@ const codeInputShape = {
     .describe("Inline files to analyze."),
   paths: z.array(z.string()).optional().describe("Filesystem paths to read and scan."),
   content: z.string().optional().describe("Raw source snippet."),
+  withExploits: z.boolean().optional().describe("If true, attach a proof-of-concept exploit (PoC, CVSS, OWASP, CWE, fix) to every finding."),
 };
 
 server.registerTool(
@@ -287,11 +288,12 @@ server.registerTool(
   {
     title: "Static code analysis (offline, no AI)",
     description:
-      "Pure pattern-based static analysis. 27 rules covering eval/exec with user input, SSRF, open redirects, " +
-      "prototype pollution, weak crypto (MD5/SHA-1/DES/RC4), insecure random in secret contexts, hardcoded weak " +
-      "JWT secrets, JWT alg=none, SQL string concatenation, CORS wildcards, missing rate limiting on auth " +
-      "routes, stray debugger statements, secrets in console.log, and commented-out credentials. Zero API calls, " + // ironward-ignore
-      "zero cost, instant.",
+      "Pure pattern-based static analysis. 300 rules across 15 categories including vibe-stack (Supabase RLS, " +
+      "Next.js NEXT_PUBLIC_ leaks, Server Actions, Prisma raw SQL, tRPC publicProcedure, Clerk middleware, " +
+      "Firebase rules, Stripe webhook verification, React localStorage tokens) and general (injection, weak " +
+      "crypto, JWT, SSRF, open redirects, prototype pollution, Node, Python, Java, Go). Pass " +
+      "withExploits:true to attach a proof-of-concept exploit (PoC, CVSS, OWASP, CWE, fix) to every finding. " +
+      "Zero API calls, zero cost, instant.",
     inputSchema: codeInputShape,
   },
   async (args) => {
@@ -495,7 +497,7 @@ server.registerTool(
     title: "Scan Terraform + CloudFormation (offline)",
     description:
       "Static analysis for infrastructure-as-code: AWS (public S3, 0.0.0.0/0 security groups, " +
-      "publicly-accessible RDS, IAM * policies, unencrypted EBS), GCP (allUsers GCS ACL, open " +
+      "publicly-accessible RDS, IAM * policies, unencrypted EBS), GCP (allUsers GCS ACL, open " +  // ironward-ignore
       "firewall, GKE legacy auth), Azure (public storage, open NSGs, public SQL, Key Vault " +
       "soft-delete), and generic hardcoded credentials.",
     inputSchema: fileBundleShape,

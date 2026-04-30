@@ -11,9 +11,10 @@ export interface SarifRule {
   name?: string;
   shortDescription?: { text: string };
   fullDescription?: { text: string };
+  help?: { text: string; markdown?: string };
   helpUri?: string;
   defaultConfiguration?: { level: SarifLevel };
-  properties?: { tags?: string[] };
+  properties?: { tags?: string[]; "security-severity"?: string };
 }
 
 export type SarifLevel = "error" | "warning" | "note" | "none";
@@ -60,6 +61,18 @@ export function sarifLevelForSeverity(sev: string): SarifLevel {
   }
 }
 
+export interface NormalizedExploit {
+  title: string;
+  poc: string;
+  impact: string;
+  cvss: number;
+  cvssVector: string;
+  owasp: string;
+  cwe: string;
+  remediation: string;
+  references: string[];
+}
+
 /** Normalized finding that every Ironward scanner can produce before SARIF emission. */
 export interface NormalizedFinding {
   ruleId: string;
@@ -71,6 +84,7 @@ export interface NormalizedFinding {
   column?: number;
   tool: string;                     // scan_for_secrets / scan_code / scan_deps / …
   fingerprint?: string;
+  exploit?: NormalizedExploit;
 }
 
 export function buildSarif(
@@ -84,13 +98,23 @@ export function buildSarif(
   for (const f of findings) {
     const ruleKey = `${f.tool}::${f.ruleId}`;
     if (rulesByKey.has(ruleKey)) continue;
+    const ex = f.exploit;
+    const helpText = ex
+      ? `${ex.title}\n\n${ex.poc}\n\nImpact: ${ex.impact}\n\nCVSS: ${ex.cvss.toFixed(1)} (${ex.cvssVector})\nOWASP: ${ex.owasp}\nCWE: ${ex.cwe}\n\nFix: ${ex.remediation}${ex.references.length ? "\n\nReferences:\n" + ex.references.map((r) => `- ${r}`).join("\n") : ""}`
+      : undefined;
+    const helpMd = ex
+      ? `### ${ex.title}\n\n**Proof of concept**\n\n\`\`\`\n${ex.poc}\n\`\`\`\n\n**Impact:** ${ex.impact}\n\n| | |\n|---|---|\n| CVSS | ${ex.cvss.toFixed(1)} (${ex.cvssVector}) |\n| OWASP | ${ex.owasp} |\n| CWE | ${ex.cwe} |\n\n**Fix:** ${ex.remediation}${ex.references.length ? "\n\n**References**\n" + ex.references.map((r) => `- <${r}>`).join("\n") : ""}`
+      : undefined;
+    const props: NonNullable<SarifRule["properties"]> = { tags: [f.tool, `severity:${f.severity}`] };
+    if (ex) props["security-severity"] = ex.cvss.toFixed(1);
     rulesByKey.set(ruleKey, {
       id: f.ruleId,
       name: f.ruleId,
       shortDescription: { text: f.title.slice(0, 120) },
       fullDescription: { text: f.description.slice(0, 500) || f.title },
       defaultConfiguration: { level: sarifLevelForSeverity(f.severity) },
-      properties: { tags: [f.tool, `severity:${f.severity}`] },
+      properties: props,
+      ...(helpText ? { help: { text: helpText, ...(helpMd ? { markdown: helpMd } : {}) } } : {}),
     });
     seenRuleIds.add(f.ruleId);
   }

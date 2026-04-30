@@ -99,7 +99,7 @@ export async function runInstallHooks(cwd: string = process.cwd()): Promise<numb
 
   await chmod(hookPath, 0o755);
   console.log(`Installed Ironward pre-commit hook at ${hookPath}`);
-  console.log(`It will block commits with critical/high secret or code findings.`);
+  console.log(`It will block commits with critical/high secret or code findings.`);  // ironward-ignore
   console.log(`Bypass once with: git commit --no-verify`);
   console.log(`Uninstall with:  ironward uninstall-hooks`);
   return 0;

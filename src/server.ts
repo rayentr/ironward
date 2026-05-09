@@ -14,6 +14,7 @@ import { runScanK8s, formatK8sReport } from "./tools/scan-k8s.js";
 import { runScanGithub, formatGithubReport } from "./tools/scan-github.js";
 import { runScanInfra, formatInfraReport } from "./tools/scan-infra.js";
 import { runFixAndPr, formatFixReport, DEFAULT_FIX_MODEL } from "./tools/fix-and-pr.js";
+import { CODE_RULES } from "./engines/code-rules.js";
 import { defaultValidator } from "./engines/fix-validator.js";
 import { MissingApiKeyError } from "./engines/claude-client.js";
 import { MissingGitHubTokenError } from "./engines/github-client.js";
@@ -531,6 +532,43 @@ server.registerTool(
       content: [
         { type: "text", text: formatGithubReport(result) },
         { type: "text", text: "```json\n" + JSON.stringify(result, null, 2) + "\n```" },
+      ],
+      isError: false,
+    };
+  },
+);
+
+server.registerTool(
+  "list_rules",
+  {
+    title: "List static analysis rules",
+    description: "Returns a list of all static analysis rules currently active in the scanner.",
+    inputSchema: {
+      category: z.string().optional().describe("Filter rules by category."),
+    },
+  },
+  async (args) => {
+    let filtered = CODE_RULES;
+    if (args.category) {
+      filtered = CODE_RULES.filter((r) => r.category === args.category);
+    }
+    const simplified = filtered.map((r) => ({
+      id: r.id,
+      severity: r.severity,
+      category: r.category,
+      title: r.title,
+      rationale: r.rationale,
+    }));
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Found ${simplified.length} rules${args.category ? ` in category '${args.category}'` : ""}.`,
+        },
+        {
+          type: "text",
+          text: "```json\n" + JSON.stringify(simplified, null, 2) + "\n```",
+        },
       ],
       isError: false,
     };

@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Documentation — Ironward Security</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --color-bg: #0b0b0d;
+    --color-surface: #141417;
+    --color-surface-2: #1b1b20;
+    --color-border: #23232a;
+    --color-text: #f6f6f4;
+    --color-muted: #a1a1a6;
+    --color-accent: #9af99a;
+    --color-danger: #ff7e6b;
+    --color-warn: #ffc56b;
+    --color-info: #88bfff;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--color-bg); color: var(--color-text); font-family: "Inter", system-ui, sans-serif; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+
+  .layout { display: grid; grid-template-columns: 280px 1fr; max-width: 1200px; margin: 0 auto; gap: 40px; padding: 0 28px; }
+
+  aside { position: sticky; top: 0; height: 100vh; padding: 40px 0; overflow-y: auto; border-right: 1px solid var(--color-border); }
+  aside nav ul { list-style: none; }
+  aside nav li { margin-bottom: 8px; }
+  aside nav a { color: var(--color-muted); text-decoration: none; font-size: 14px; font-weight: 500; transition: color 0.2s; }
+  aside nav a:hover, aside nav a.active { color: var(--color-accent); }
+  aside .section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--color-text); font-weight: 700; margin: 24px 0 12px; }
+
+  main { padding: 80px 0 120px; }
+  h1 { font-size: 48px; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 24px; }
+  h2 { font-size: 28px; font-weight: 700; margin: 64px 0 20px; padding-bottom: 12px; border-bottom: 1px solid var(--color-border); }
+  h3 { font-size: 20px; font-weight: 600; margin: 32px 0 12px; color: var(--color-accent); }
+  p { margin-bottom: 20px; color: var(--color-muted); font-size: 16px; }
+
+  code { font-family: "JetBrains Mono", monospace; background: var(--color-surface-2); padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: var(--color-text); }
+  pre { background: #000; border: 1px solid var(--color-border); padding: 20px; border-radius: var(--radius); overflow-x: auto; margin-bottom: 24px; }
+  pre code { background: transparent; padding: 0; font-size: 13px; color: #d1d1d1; }
+
+  .tool-meta { display: flex; gap: 12px; margin-bottom: 16px; }
+  .badge { font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 4px 10px; border-radius: 6px; }
+  .badge.offline { background: rgba(154, 249, 154, 0.1); color: var(--color-accent); }
+  .badge.ai { background: rgba(136, 191, 255, 0.1); color: var(--color-info); }
+
+  .nav-header { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; margin-bottom: 32px; color: var(--color-text); text-decoration: none; }
+  .nav-header .dot { width: 12px; height: 12px; background: var(--color-accent); border-radius: 3px; box-shadow: 0 0 10px var(--color-accent); }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    aside { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <aside>
+    <a href="/" class="nav-header"><span class="dot"></span> Ironward</a>
+    <nav>
+      <div class="section-title">Getting Started</div>
+      <ul>
+        <li><a href="#introduction">Introduction</a></li>
+        <li><a href="#installation">Installation</a></li>
+        <li><a href="#mcp-setup">MCP Configuration</a></li>
+      </ul>
+
+      <div class="section-title">Offline Tools</div>
+      <ul>
+        <li><a href="#scan-secrets">scan_for_secrets</a></li>
+        <li><a href="#scan-code">scan_code</a></li>
+        <li><a href="#scan-deps">scan_deps</a></li>
+        <li><a href="#scan-url">scan_url</a></li>
+        <li><a href="#scan-docker">scan_docker</a></li>
+        <li><a href="#scan-k8s">scan_k8s</a></li>
+        <li><a href="#scan-infra">scan_infra</a></li>
+        <li><a href="#scan-github">scan_github</a></li>
+      </ul>
+
+      <div class="section-title">AI Tools</div>
+      <ul>
+        <li><a href="#scan-auth">scan_auth_logic</a></li>
+        <li><a href="#scan-sqli">scan_sqli</a></li>
+        <li><a href="#scan-xss">scan_xss</a></li>
+        <li><a href="#scan-idor">scan_idor</a></li>
+        <li><a href="#fix-pr">fix_and_pr</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main>
+    <h1 id="introduction">Documentation</h1>
+    <p>Ironward is a modular security toolkit built for modern development workflows. It provides a comprehensive set of scanners designed to be fast, privacy-focused, and deeply integrated into your IDE via the Model Context Protocol (MCP).</p>
+
+    <h2 id="installation">Installation</h2>
+    <p>The fastest way to use Ironward is via <code>npx</code>, which requires no permanent installation:</p>
+    <pre><code>npx ironward scan .</code></pre>
+    <p>To install the CLI globally:</p>
+    <pre><code>npm install -g ironward
+ironward --help</code></pre>
+
+    <h2 id="mcp-setup">MCP Configuration</h2>
+    <p>Ironward shines when used inside MCP-compatible editors like Cursor, Claude Code, or VS Code. Add the following to your configuration:</p>
+    <pre><code>{
+  "mcpServers": {
+    "ironward": {
+      "command": "npx",
+      "args": ["-y", "ironward@latest"],
+      "env": {
+        "ANTHROPIC_API_KEY": "your-key-here"
+      }
+    }
+  }
+}</code></pre>
+
+    <h2 id="offline-tools">Offline Scanners</h2>
+    <p>These tools run entirely on your local machine and do not require an AI API key or network access (except for vulnerability database lookups).</p>
+
+    <section id="scan-secrets">
+      <h3>scan_for_secrets</h3>
+      <div class="tool-meta"><span class="badge offline">Offline</span></div>
+      <p>Scans your source code for over 665 pattern families of hardcoded secrets. It covers all major cloud providers, payment gateways, and web3 wallets.</p>
+      <p><strong>Key Features:</strong></p>
+      <ul>
+        <li>Pattern-based discovery for known token formats.</li>
+        <li>Shannon entropy analysis for high-entropy "mystery" strings.</li>
+        <li>Automatic redaction of discovered secrets in reports.</li>
+      </ul>
+    </section>
+
+    <section id="scan-code">
+      <h3>scan_code</h3>
+      <div class="tool-meta"><span class="badge offline">Offline</span></div>
+      <p>Performs static analysis using a library of 374 rules. It targets the "vibe stack" (Next.js, Supabase, Prisma) and general backend security.</p>
+      <pre><code>npx ironward scan-code ./src --exploit</code></pre>
+    </section>
+
+    <section id="scan-deps">
+      <h3>scan_deps</h3>
+      <div class="tool-meta"><span class="badge offline">Offline + API</span></div>
+      <p>Checks your <code>package.json</code>, <code>requirements.txt</code>, and other manifests against the OSV.dev vulnerability database.</p>
+      <p>Use <code>--full</code> to enable behavior analysis (scanning <code>node_modules</code> for malware) and reputation scoring.</p>
+    </section>
+
+    <section id="scan-url">
+      <h3>scan_url</h3>
+      <div class="tool-meta"><span class="badge offline">Offline</span></div>
+      <p>Probes a live URL for misconfigurations. It checks headers (CSP, HSTS), TLS expiry, and looks for common accidental file exposures like <code>.env</code> or <code>.git</code>.</p>
+    </section>
+
+    <section id="scan-docker">
+      <h3>scan_docker</h3>
+      <div class="tool-meta"><span class="badge offline">Offline</span></div>
+      <p>Audits Dockerfiles and Docker Compose files for dangerous defaults like running as root or using <code>privileged: true</code>.</p>
+    </section>
+
+    <section id="scan-k8s">
+      <h3>scan_k8s</h3>
+      <div class="tool-meta"><span class="badge offline">Offline</span></div>
+      <p>Scans Kubernetes manifests for over-privileged pods, missing resource limits, and hardcoded secrets in environment variables.</p>
+    </section>
+
+    <section id="scan-infra">
+      <h3>scan_infra</h3>
+      <div class="tool-meta"><span class="badge offline">Offline</span></div>
+      <p>Audits Terraform and CloudFormation templates for cloud misconfigurations like public S3 buckets or open security groups.</p>
+    </section>
+
+    <section id="scan-github">
+      <h3>scan_github</h3>
+      <div class="tool-meta"><span class="badge offline">Offline</span></div>
+      <p>Checks GitHub Action workflows for ACE vulnerabilities (Arbitrary Code Execution) via <code>pull_request_target</code> and expression injection.</p>
+    </section>
+
+    <h2 id="ai-tools">AI-Powered Scanners</h2>
+    <p>These tools use Large Language Models to find complex logic flaws that static patterns might miss. They require an <code>ANTHROPIC_API_KEY</code> or equivalent.</p>
+
+    <section id="scan-auth">
+      <h3>scan_auth_logic</h3>
+      <div class="tool-meta"><span class="badge ai">AI Powered</span></div>
+      <p>Uses reasoning models to find backwards auth checks, missing ownership verification, and bypassable middleware logic.</p>
+    </section>
+
+    <section id="scan-sqli">
+      <h3>scan_sqli</h3>
+      <div class="tool-meta"><span class="badge ai">AI Powered</span></div>
+      <p>Analyzes how queries are constructed to find SQL injection vulnerabilities across multiple languages, including cases where ORM <code>raw()</code> methods are misused.</p>
+    </section>
+
+    <section id="scan-xss">
+      <h3>scan_xss</h3>
+      <div class="tool-meta"><span class="badge ai">AI Powered</span></div>
+      <p>Finds Cross-Site Scripting (XSS) in frontend frameworks (React, Vue, Svelte) and backend templates, accounting for existing sanitization logic.</p>
+    </section>
+
+    <section id="scan-idor">
+      <h3>scan_idor</h3>
+      <div class="tool-meta"><span class="badge ai">AI Powered</span></div>
+      <p>Flags Insecure Direct Object References by identifying routes that accept an ID but fail to verify if the requesting user owns that resource.</p>
+    </section>
+
+    <section id="fix-pr">
+      <h3>fix_and_pr</h3>
+      <div class="tool-meta"><span class="badge ai">AI Powered</span></div>
+      <p>The ultimate automation tool. It takes a security finding, generates a surgical fix, verifies the fix by re-running the scanner, and opens a Pull Request on GitHub.</p>
+    </section>
+
+    <h2 id="config">Global Flags</h2>
+    <p>Common options available across most CLI commands:</p>
+    <ul>
+      <li><code>--format json|sarif|text</code> — Change the output format.</li>
+      <li><code>--verbose</code> — Show low-confidence findings and detailed logs.</li>
+      <li><code>--no-cache</code> — Force a fresh scan, bypassing local cache.</li>
+      <li><code>--offline</code> — Skip all network-dependent features.</li>
+    </ul>
+
+    <footer style="margin-top: 100px; padding-top: 40px; border-top: 1px solid var(--color-border); color: var(--color-muted); font-size: 14px;">
+      Ironward Security · 2025
+    </footer>
+  </main>
+</div>
+
+</body>
+</html>

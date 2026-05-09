@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { overviewStats, recentFindings } from "@/lib/queries";
+import { activityTrends, overviewStats, recentFindings } from "@/lib/queries";
 import { StatCard } from "@/components/StatCard";
+import { ActivityTrends } from "@/components/ActivityTrends";
 import { FindingRow } from "@/components/FindingRow";
 import { ClearDataButton } from "@/components/ClearDataButton";
 import { demoRowCount } from "@/lib/db";
@@ -10,10 +11,40 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const stats = overviewStats();
   const findings = recentFindings(10);
+  const trends = activityTrends(7);
   const demoCount = demoRowCount();
+
+  const healthColor = stats.critical > 0 ? "text-[var(--color-danger)]" : stats.high > 0 ? "text-[var(--color-warn)]" : "text-[var(--color-accent)]";
+  const healthLabel = stats.critical > 0 ? "Critical" : stats.high > 0 ? "At Risk" : stats.totalScans > 0 ? "Secure" : "No Data";
 
   return (
     <main className="space-y-10">
+      <section className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-6 flex items-center justify-between shadow-sm">
+        <div>
+          <h2 className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wider">System Security Health</h2>
+          <div className={`text-4xl font-bold mt-1 ${healthColor}`}>
+            {healthLabel}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-sm text-[var(--color-muted)] mb-1">Critical Issues</div>
+          <div className={`text-2xl font-mono ${stats.critical > 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-muted)]'}`}>
+            {stats.critical}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="md:col-span-2">
+           <ActivityTrends trends={trends} />
+        </div>
+        <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-6 flex flex-col justify-center">
+            <div className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wider mb-2">Total Insights</div>
+            <div className="text-3xl font-bold">{stats.totalFindings}</div>
+            <div className="text-xs text-[var(--color-muted)] mt-2">Security findings detected across all targets.</div>
+        </div>
+      </section>
+
       <section className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>

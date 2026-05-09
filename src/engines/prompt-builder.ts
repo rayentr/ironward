@@ -22,9 +22,9 @@ interface ToolSpec {
 const TOOL_SPECS: Record<string, ToolSpec> = {
   scan_auth_logic: {
     role: "an expert application-security auditor focused on authentication and authorization",
-    goal: "Find authentication and authorization vulnerabilities (broken auth, missing checks, privilege escalation).",
-    jsonSchema: `{ "findings": [ { "title": string, "severity": "critical"|"high"|"medium"|"low", "line": number, "description": string, "fix": string } ] }`,
-    jsonTemplate: `{"findings":[{"title":"...","severity":"high","line":1,"description":"...","fix":"..."}]}`,
+    goal: "Find authentication and authorization vulnerabilities (broken auth, missing ownership checks, privilege escalation, bypassable middleware, session fixation).",
+    jsonSchema: `{ "findings": [ { "title": string, "severity": "critical"|"high"|"medium"|"low", "line": number, "description": string, "fix": string, "impact": string, "confidence": number } ] }`,
+    jsonTemplate: `{"findings":[{"title":"...","severity":"high","line":1,"description":"...","fix":"...","impact":"...","confidence":90}]}`,
   },
   scan_sqli: {
     role: "an expert SQL injection auditor",
@@ -85,7 +85,8 @@ function buildOpusSystem(spec: ToolSpec): string {
     "2. Trace data flow from sources (request bodies, URL params, headers) to sinks.",
     "3. For each suspected issue, reason about exploitability: who can trigger it, what is the impact, what is the precondition.",
     "4. Prefer high-confidence findings. Note nuance (e.g. framework-default protections).",
-    "5. Provide an actionable fix for each finding.",
+    "5. Look for logic flaws, such as off-by-one errors in permissions, incorrect boolean logic in auth checks, and missing edge case handling.",
+    "6. Provide an actionable, surgical fix for each finding.",
     "",
     "Output schema:",
     spec.jsonSchema,

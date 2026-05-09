@@ -58,7 +58,7 @@ async function resolveHooksDir(info: RepoInfo): Promise<string> {
   // core.hooksPath is resolved relative to the working-tree root (not .git).
   try {
     const custom = execFileSync("git", ["config", "--get", "core.hooksPath"], { cwd: info.workTree, encoding: "utf8" }).trim();
-    if (custom) return resolve(info.workTree, custom);
+    if (custom && custom !== "/dev/null") return resolve(info.workTree, custom);
   } catch {
     /* not set — use default */
   }

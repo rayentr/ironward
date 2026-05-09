@@ -77,6 +77,7 @@ Team integrations:
   ironward email-setup --api-key RESEND --from ADDR --to ADDR1,ADDR2 [--frequency weekly --send-time 09:00]
   ironward badge [--format url|markdown|html|svg|json] [--score N] [--update-readme]
   ironward api-server [--port 7373 --host 127.0.0.1]   serve REST API for dashboard / external tools
+  ironward dashboard                show instructions to start the local web dashboard
 
 Provider:
   ironward login                    pick AI provider (Anthropic, OpenAI, Gemini, Groq, Ollama)
@@ -1199,6 +1200,15 @@ export async function runCli(argv: string[]): Promise<number> {
     case "diff": {
       const { runDiff } = await import("./commands/diff.js");
       return await runDiff(rest);
+    }
+    case "dashboard": {
+      console.log("\n🛡  Ironward Local Dashboard\n");
+      console.log("To start the local dashboard, run the following commands:\n");
+      console.log("  cd dashboard");
+      console.log("  npm install");
+      console.log("  npm run dev\n");
+      console.log("Once started, open http://localhost:3737 in your browser.\n");
+      return 0;
     }
     // Integration commands (slack-setup, linear-setup, jira-setup, email-setup,
     // badge, api-server, config) are handled by an earlier branch that bypasses

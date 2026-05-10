@@ -199,6 +199,7 @@ test("MCP mode (no args) responds to initialize over stdio", async () => {
   const names = listResp.result.tools.map((t) => t.name).sort();
   assert.deepEqual(names, [
     "fix_and_pr",
+      "list_rules",
     "scan_auth_logic",
     "scan_code",
     "scan_deps",

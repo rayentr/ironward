@@ -25,6 +25,10 @@ import { DEP_SECURITY_RULES } from "../rules/dep-security.js";
 import { SECRETS_MGMT_RULES } from "../rules/secrets-mgmt.js";
 import { NODEJS_EXTENDED_RULES } from "../rules/nodejs-extended.js";
 import { PYTHON_EXTENDED_RULES } from "../rules/python-extended.js";
+import { HONO_RULES } from "../rules/hono.js";
+import { ELECTRON_RULES } from "../rules/electron.js";
+import { FASTIFY_RULES } from "../rules/fastify.js";
+import { NESTJS_RULES } from "../rules/nestjs.js";
 
 export type CodeSeverity = "critical" | "high" | "medium" | "low" | "info";
 
@@ -714,6 +718,10 @@ export const CODE_RULES: CodeRule[] = [
   ...SECRETS_MGMT_RULES,
   ...NODEJS_EXTENDED_RULES,
   ...PYTHON_EXTENDED_RULES,
+  ...HONO_RULES,
+  ...ELECTRON_RULES,
+  ...FASTIFY_RULES,
+  ...NESTJS_RULES,
 ];
 
 export interface CodeFinding {

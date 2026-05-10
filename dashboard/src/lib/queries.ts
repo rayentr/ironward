@@ -142,3 +142,21 @@ function computeScore(critical: number, high: number, open: number): number {
   const penalty = critical * 20 + high * 10 + Math.max(0, open - critical - high) * 2;
   return Math.max(0, Math.min(100, 100 - penalty));
 }
+
+export interface ActivityTrend {
+  date: string;
+  count: number;
+}
+
+export function activityTrends(days = 7): ActivityTrend[] {
+  const db = getDb();
+  // Group scans by date for the last N days
+  const rows = db.prepare(`
+    SELECT date(started_at) as date, COUNT(*) as count
+    FROM scans
+    WHERE started_at >= date('now', ?)
+    GROUP BY date(started_at)
+    ORDER BY date ASC
+  `).all(`-${days} days`) as ActivityTrend[];
+  return rows;
+}
